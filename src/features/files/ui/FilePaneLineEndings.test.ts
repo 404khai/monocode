@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FILE_EDITOR_AUTOSAVE_DELAY_MS, FileEditor } from "./FileEditor";
 import { saveAutosave } from "../../settings/model/settings";
+import { invalidateWatchedFiles } from "../model/fileWatch";
 
 const disk = vi.hoisted(() => ({ content: "" }));
 const written = vi.hoisted(() => ({ content: null as string | null }));
@@ -131,6 +132,23 @@ describe("file editor line endings", () => {
     });
 
     expect(written.content).toBeNull();
+  });
+
+  it("does not autosave over an external file change", async () => {
+    disk.content = "alpha\n";
+    const path = "/repo/notes.txt";
+    const view = await renderEditor(path);
+    vi.useFakeTimers();
+
+    await act(async () => {
+      view.dispatch({ changes: { from: 0, insert: "local " } });
+      disk.content = "external\n";
+      invalidateWatchedFiles([path]);
+      await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS);
+    });
+
+    expect(written.content).toBeNull();
+    expect(view.state.doc.toString()).toBe("local alpha\n");
   });
 
   it("restores a pending autosave after a manual save fails", async () => {

@@ -493,12 +493,12 @@ describe("autosave setting", () => {
     localStorage.removeItem(AUTOSAVE_KEY);
   });
 
-  it("defaults to on and persists changes", () => {
-    expect(AUTOSAVE_DEFAULT).toBe(true);
-    expect(loadAutosave()).toBe(true);
-    saveAutosave(false);
-    expect(localStorage.getItem(AUTOSAVE_KEY)).toBe("0");
+  it("defaults to off and persists changes", () => {
+    expect(AUTOSAVE_DEFAULT).toBe(false);
     expect(loadAutosave()).toBe(false);
+    saveAutosave(true);
+    expect(localStorage.getItem(AUTOSAVE_KEY)).toBe("1");
+    expect(loadAutosave()).toBe(true);
   });
 });
 

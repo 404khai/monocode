@@ -20,7 +20,7 @@ pub struct KeybindingOverride {
 }
 
 #[cfg(target_os = "macos")]
-static AUTOSAVE_ENABLED: AtomicBool = AtomicBool::new(true);
+static AUTOSAVE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "macos")]
 fn set_autosave_menu_checked(app: &AppHandle, enabled: bool) {

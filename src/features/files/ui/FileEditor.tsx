@@ -489,6 +489,7 @@ export function FileEditor({
                 onDirtyChange={dirtyChange}
                 onErrorCountChange={errorCountChange}
                 onSave={save}
+                canAutosave={() => !pendingDiskRef.current}
                 onStageGit={
                   showDiff && gitDiff?.kind === "unstaged"
                     ? stageGit
@@ -512,6 +513,7 @@ export function FileEditor({
           onDirtyChange={dirtyChange}
           onErrorCountChange={errorCountChange}
           onSave={save}
+          canAutosave={() => !pendingDiskRef.current}
           onStageGit={
             showDiff && gitDiff?.kind === "unstaged" ? stageGit : undefined
           }
@@ -549,6 +551,7 @@ function CodeMirrorEditor({
   onDirtyChange,
   onErrorCountChange,
   onSave,
+  canAutosave,
   onStageGit,
   onDocChange,
 }: {
@@ -562,6 +565,7 @@ function CodeMirrorEditor({
   onDirtyChange: (dirty: boolean) => void;
   onErrorCountChange: (count: number) => void;
   onSave: (content: string) => Promise<void>;
+  canAutosave: () => boolean;
   onStageGit?: (contents: string) => Promise<void>;
   onDocChange?: (content: string) => void;
 }) {
@@ -573,6 +577,7 @@ function CodeMirrorEditor({
   const onDirtyChangeRef = useRef(onDirtyChange);
   const onErrorCountChangeRef = useRef(onErrorCountChange);
   const onSaveRef = useRef(onSave);
+  const canAutosaveRef = useRef(canAutosave);
   const onStageGitRef = useRef(onStageGit);
   const canStage = onStageGit !== undefined;
   const onDocChangeRef = useRef(onDocChange);
@@ -603,6 +608,7 @@ function CodeMirrorEditor({
   onDirtyChangeRef.current = onDirtyChange;
   onErrorCountChangeRef.current = onErrorCountChange;
   onSaveRef.current = onSave;
+  canAutosaveRef.current = canAutosave;
   onStageGitRef.current = onStageGit;
   onDocChangeRef.current = onDocChange;
   valueRef.current = value;
@@ -748,7 +754,13 @@ function CodeMirrorEditor({
       if (!loadAutosave()) return;
       autosaveTimer = window.setTimeout(() => {
         autosaveTimer = 0;
-        if (dirtyRef.current && loadAutosave()) save();
+        if (
+          dirtyRef.current &&
+          loadAutosave() &&
+          canAutosaveRef.current()
+        ) {
+          save();
+        }
       }, FILE_EDITOR_AUTOSAVE_DELAY_MS);
     }
 

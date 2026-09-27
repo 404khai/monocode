@@ -872,7 +872,7 @@ export function saveFormatOnSave(value: boolean) {
 const AUTOSAVE_KEY = "monocode.autosave";
 const AUTOSAVE_CHANGE_EVENT = "monocode:autosave-change";
 
-export const AUTOSAVE_DEFAULT = true;
+export const AUTOSAVE_DEFAULT = false;
 
 export function loadAutosave(): boolean {
   return readFlag(AUTOSAVE_KEY) ?? AUTOSAVE_DEFAULT;
