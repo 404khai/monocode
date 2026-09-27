@@ -336,6 +336,30 @@ describe("Composer question focus", () => {
     expect(container.querySelector("[data-mcp-picker]")?.className).toContain(
       "bg-content/5",
     );
+    const searchInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Search MCP servers"]',
+    )!;
+    const options = list.querySelectorAll<HTMLButtonElement>('[role="option"]');
+    expect(searchInput.getAttribute("aria-controls")).toBe(list.id);
+    await act(async () => options[1].focus());
+    expect(options[1].getAttribute("aria-selected")).toBe("true");
+    expect(searchInput.getAttribute("aria-activedescendant")).toBe(
+      options[1].id,
+    );
+    await act(async () => {
+      searchInput.focus();
+      for (const key of ["ArrowDown", "Enter", "Escape"]) {
+        searchInput.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            isComposing: true,
+          }),
+        );
+      }
+    });
+    expect(container.querySelector("[data-mcp-picker]")).not.toBeNull();
+    expect(container.textContent).not.toContain("MCP: server-");
 
     const outside = document.createElement("button");
     document.body.append(outside);

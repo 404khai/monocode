@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search, Settings } from "../../../shared/ui/icons";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { HarnessIcon } from "./HarnessIcon";
@@ -30,6 +30,7 @@ export function McpServerPicker({
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const listboxId = `mcp-server-picker-${useId()}`;
   const search = useRef<HTMLInputElement>(null);
   const picker = useRef<HTMLDivElement>(null);
   const activeOption = useRef<HTMLButtonElement>(null);
@@ -71,6 +72,7 @@ export function McpServerPicker({
       role="dialog"
       aria-label="Choose an MCP server"
       onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return;
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
@@ -83,10 +85,19 @@ export function McpServerPicker({
         <Search className="size-3.5 shrink-0 text-content/45" />
         <input
           ref={search}
+          role="combobox"
+          aria-controls={listboxId}
+          aria-expanded="true"
+          aria-activedescendant={
+            servers[active]?.availability === "available"
+              ? `${listboxId}-option-${active}`
+              : undefined
+          }
           aria-label="Search MCP servers"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               if (selectable.length === 0) return;
@@ -119,6 +130,7 @@ export function McpServerPicker({
       </div>
       <div
         ref={lockOverscroll}
+        id={listboxId}
         role="listbox"
         aria-label="MCP servers"
         className="max-h-[min(184px,45vh)] overflow-y-auto overscroll-none p-1"
@@ -141,17 +153,21 @@ export function McpServerPicker({
             return (
               <button
                 key={`${server.provider}:${server.scope}:${server.configPath}:${server.name}`}
+                id={`${listboxId}-option-${index}`}
                 ref={available && active === index ? activeOption : undefined}
                 type="button"
                 role="option"
                 aria-selected={available && active === index}
                 aria-disabled={!available}
                 disabled={!available}
+                onFocus={() => {
+                  if (available) setActive(index);
+                }}
                 onMouseEnter={() => {
                   if (available) setActive(index);
                 }}
                 onClick={() => onPick(server)}
-                className={`flex h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${available ? (active === index ? "bg-selection text-content" : "text-content hover:bg-content/5") : "cursor-default text-content/40"}`}
+                className={`flex h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${available ? (active === index ? "bg-selection text-content" : "text-content hover:bg-content/5") : "cursor-default text-content/40"}`}
               >
                 <HarnessIcon
                   harness={
