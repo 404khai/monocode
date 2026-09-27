@@ -4,7 +4,10 @@ import { Storage } from "happy-dom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FileEditor } from "./FileEditor";
+import {
+  FILE_EDITOR_AUTOSAVE_DELAY_MS,
+  FileEditor,
+} from "./FileEditor";
 
 const disk = vi.hoisted(() => ({ content: "" }));
 const written = vi.hoisted(() => ({ content: null as string | null }));
@@ -41,6 +44,7 @@ describe("file editor line endings", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    vi.useRealTimers();
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -91,6 +95,29 @@ describe("file editor line endings", () => {
       path: "/repo/notes.txt",
       content: "intro\r\nalpha\r\nbeta\r\n",
     });
+  });
+
+  it("automatically saves after typing stops", async () => {
+    disk.content = "alpha\n";
+    const view = await renderEditor("/repo/notes.txt");
+    vi.useFakeTimers();
+
+    await act(async () => {
+      view.dispatch({ changes: { from: 0, insert: "first " } });
+      await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS - 1);
+    });
+    expect(written.content).toBeNull();
+
+    await act(async () => {
+      view.dispatch({ changes: { from: 0, insert: "second " } });
+      await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS - 1);
+    });
+    expect(written.content).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(written.content).toBe("second first alpha\n");
   });
 
   it("preserves queued save line endings after switching files", async () => {

@@ -98,6 +98,8 @@ import { FilePreviewSearch } from "./FilePreviewSearch";
 
 type EditorNavigationRequest = EditorNavigation & { token: number };
 
+export const FILE_EDITOR_AUTOSAVE_DELAY_MS = 1_000;
+
 const editorScheme = new Compartment();
 const editorGitConfig = new Compartment();
 
@@ -682,6 +684,7 @@ function CodeMirrorEditor({
     const language = new Compartment();
     let disposed = false;
     let saveGeneration = 0;
+    let autosaveTimer = 0;
     let view: EditorView;
 
     const markDirty = () => {
@@ -690,6 +693,7 @@ function CodeMirrorEditor({
     };
 
     const save = () => {
+      window.clearTimeout(autosaveTimer);
       const generation = ++saveGeneration;
       void (async () => {
         const before = view.state.doc.toString();
@@ -728,6 +732,14 @@ function CodeMirrorEditor({
         markDirty();
       })();
       return true;
+    };
+
+    const scheduleAutosave = () => {
+      window.clearTimeout(autosaveTimer);
+      autosaveTimer = window.setTimeout(() => {
+        autosaveTimer = 0;
+        if (dirtyRef.current) save();
+      }, FILE_EDITOR_AUTOSAVE_DELAY_MS);
     };
 
     view = new EditorView({
@@ -792,6 +804,7 @@ function CodeMirrorEditor({
             return;
           }
           markDirty();
+          scheduleAutosave();
         }),
         EditorView.domEventHandlers({
           blur: () => {
@@ -834,6 +847,7 @@ function CodeMirrorEditor({
 
     return () => {
       disposed = true;
+      window.clearTimeout(autosaveTimer);
       onErrorCountChangeRef.current(0);
       lockOverscroll(null);
       viewRef.current = null;
