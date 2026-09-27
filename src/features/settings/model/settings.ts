@@ -869,6 +869,18 @@ export function saveFormatOnSave(value: boolean) {
   writeFlag(FORMAT_ON_SAVE_KEY, value);
 }
 
+const AUTOSAVE_KEY = "monocode.autosave";
+
+export const AUTOSAVE_DEFAULT = true;
+
+export function loadAutosave(): boolean {
+  return readFlag(AUTOSAVE_KEY) ?? AUTOSAVE_DEFAULT;
+}
+
+export function saveAutosave(value: boolean) {
+  writeFlag(AUTOSAVE_KEY, value);
+}
+
 const CLAUDE_HOOKS_KEY = "monocode.claudeHooks";
 
 export const CLAUDE_HOOKS_DEFAULT = true;

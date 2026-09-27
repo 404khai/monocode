@@ -4,10 +4,8 @@ import { Storage } from "happy-dom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  FILE_EDITOR_AUTOSAVE_DELAY_MS,
-  FileEditor,
-} from "./FileEditor";
+import { FILE_EDITOR_AUTOSAVE_DELAY_MS, FileEditor } from "./FileEditor";
+import { saveAutosave } from "../../settings/model/settings";
 
 const disk = vi.hoisted(() => ({ content: "" }));
 const written = vi.hoisted(() => ({ content: null as string | null }));
@@ -37,6 +35,7 @@ describe("file editor line endings", () => {
     vi.stubGlobal("localStorage", new Storage());
     invoke.mockClear();
     written.content = null;
+    saveAutosave(true);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -118,6 +117,20 @@ describe("file editor line endings", () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(written.content).toBe("second first alpha\n");
+  });
+
+  it("keeps changes dirty when autosave is disabled", async () => {
+    disk.content = "alpha\n";
+    saveAutosave(false);
+    const view = await renderEditor("/repo/notes.txt");
+    vi.useFakeTimers();
+
+    await act(async () => {
+      view.dispatch({ changes: { from: 0, insert: "changed " } });
+      await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS);
+    });
+
+    expect(written.content).toBeNull();
   });
 
   it("preserves queued save line endings after switching files", async () => {

@@ -42,7 +42,7 @@ import {
 import { useColorScheme } from "../../../shared/hooks/useColorScheme";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { isLightScheme } from "../../settings/model/appearance";
-import { loadFormatOnSave } from "../../settings/model/settings";
+import { loadAutosave, loadFormatOnSave } from "../../settings/model/settings";
 import { formatText } from "../../../shared/lib/format";
 import {
   basename,
@@ -736,9 +736,10 @@ function CodeMirrorEditor({
 
     const scheduleAutosave = () => {
       window.clearTimeout(autosaveTimer);
+      if (!loadAutosave()) return;
       autosaveTimer = window.setTimeout(() => {
         autosaveTimer = 0;
-        if (dirtyRef.current) save();
+        if (dirtyRef.current && loadAutosave()) save();
       }, FILE_EDITOR_AUTOSAVE_DELAY_MS);
     };
 

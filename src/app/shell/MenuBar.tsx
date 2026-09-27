@@ -8,7 +8,9 @@ import { ALT, MOD, SHIFT } from "../../platform/tauri/platform";
 import { runUpdateFlow } from "../model/updater";
 import {
   keybindingShortcutLabel,
+  loadAutosave,
   loadKeybindingOverrides,
+  saveAutosave,
   subscribeKeybindings,
 } from "../../features/settings/model/settings";
 
@@ -61,6 +63,7 @@ export function MenuBar({
     null,
   );
   const [, refreshShortcuts] = useState(loadKeybindingOverrides);
+  const [autosave, setAutosave] = useState(loadAutosave);
   const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(
@@ -168,6 +171,12 @@ export function MenuBar({
         case "close_all_tabs":
           onCloseAllTabs?.();
           break;
+        case "toggle_autosave": {
+          const next = !autosave;
+          saveAutosave(next);
+          setAutosave(next);
+          break;
+        }
         case "toggle_sidebar":
           onToggleSidebar();
           break;
@@ -196,6 +205,7 @@ export function MenuBar({
     },
     [
       closeMenu,
+      autosave,
       onCloseCurrentTab,
       onCloseOtherTabs,
       onCloseAllTabs,
@@ -238,6 +248,13 @@ export function MenuBar({
             id: "new_window",
             label: "New Window",
             shortcut: shortcut("App: New Window", `${MOD}${SHIFT}N`),
+          },
+          { kind: "sep" },
+          {
+            kind: "item",
+            id: "toggle_autosave",
+            label: "Autosave",
+            checked: autosave,
           },
           { kind: "sep" },
           {

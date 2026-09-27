@@ -559,6 +559,7 @@ import {
 } from "../features/inbox/model/azureDevOps";
 import {
   loadCloseToTray,
+  loadAutosave,
   loadCollapsedProjectRailMode,
   loadFileTabMode,
   loadLiveAgentsEnabled,
@@ -570,6 +571,7 @@ import {
   keybindingPressed,
   matchCustomKeybinding,
   saveSettingsSection,
+  saveAutosave,
   subscribeLiveAgentsEnabled,
   subscribeNotesEnabled,
   type CollapsedProjectRailMode,
@@ -9670,9 +9672,13 @@ export default function App({
 
   useEffect(() => {
     if (!IS_MAC) return;
-    void invoke("keybindings_set_overrides", {
-      overrides: loadKeybindingOverrides(),
-    }).catch(console.error);
+    void invoke("autosave_set_enabled", { enabled: loadAutosave() })
+      .then(() =>
+        invoke("keybindings_set_overrides", {
+          overrides: loadKeybindingOverrides(),
+        }),
+      )
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -9879,6 +9885,9 @@ export default function App({
         run("close-all", actions.current.onCloseAllTabs),
       ),
       listen("close_tab", () => run("close", actions.current.onClosePane)),
+      listen<boolean>("toggle_autosave", ({ payload }) => {
+        saveAutosave(payload);
+      }),
       listen("next_tab", () => run("next", actions.current.onNext)),
       listen("prev_tab", () => run("prev", actions.current.onPrev)),
       listen("back_tab", () => run("back", actions.current.onVisitBack)),
