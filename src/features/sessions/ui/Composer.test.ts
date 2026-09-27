@@ -4,6 +4,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const mcpInvoke = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/core", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@tauri-apps/api/core")>();
+  return {
+    ...original,
+    invoke: (command: string, args?: unknown) =>
+      command === "mcp_discover" || command === "claude_mcp_list"
+        ? mcpInvoke(command, args)
+        : original.invoke(command, args),
+  };
+});
+
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
 }));
@@ -66,6 +79,29 @@ describe("Composer question focus", () => {
   let root: Root;
 
   beforeEach(() => {
+    mcpInvoke.mockReset();
+    mcpInvoke.mockImplementation(async (command: string) =>
+      command === "mcp_discover"
+        ? [
+            {
+              provider: "claude",
+              name: "docs",
+              scope: "project",
+              configPath: "/repo/.mcp.json",
+              transport: "stdio",
+            },
+            {
+              provider: "cursor",
+              name: "other",
+              scope: "user",
+              configPath: "/cursor/mcp.json",
+              transport: "stdio",
+            },
+          ]
+        : command === "claude_mcp_list"
+          ? "docs: local - ✔ Connected"
+          : undefined,
+    );
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.append(container);
@@ -186,7 +222,7 @@ describe("Composer question focus", () => {
     expect(textarea.value).toBe("/btw ");
   });
 
-  it("opens MCP settings without sending a turn", async () => {
+  it("opens a searchable MCP picker and sends selected context", async () => {
     const onSubmit = vi.fn();
     const onOpen = vi.fn();
     window.addEventListener("monocode:open-mcp-settings", onOpen);
@@ -210,8 +246,52 @@ describe("Composer question focus", () => {
           }),
         ),
       );
-      expect(onOpen).toHaveBeenCalledOnce();
-      expect(onSubmit).not.toHaveBeenCalled();
+      expect(container.querySelector("[data-mcp-picker]")).not.toBeNull();
+      expect(container.textContent).toContain("docs");
+      expect(container.textContent).toContain("other");
+      const unavailable = [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[data-mcp-picker] [role="option"]',
+        ),
+      ].find((button) => button.textContent?.includes("other"))!;
+      expect(unavailable.disabled).toBe(true);
+      const search = container.querySelector<HTMLInputElement>(
+        '[aria-label="Search MCP servers"]',
+      )!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(search, "docs");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(
+        container.querySelector("[data-mcp-picker]")?.textContent,
+      ).not.toContain("other");
+      const available = [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[data-mcp-picker] [role="option"]',
+        ),
+      ].find((button) => button.textContent?.includes("docs"))!;
+      await act(async () => available.click());
+      expect(container.textContent).toContain("MCP: docs");
+      await typeInto(textarea, "Find the docs");
+      await act(async () =>
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.stringContaining('"docs" (claude)'),
+        expect.any(Array),
+        expect.any(Object),
+      );
+      expect(container.textContent).not.toContain("MCP: docs");
+      expect(onOpen).not.toHaveBeenCalled();
       expect(textarea.value).toBe("");
     } finally {
       window.removeEventListener("monocode:open-mcp-settings", onOpen);
@@ -1062,7 +1142,7 @@ describe("Composer question focus", () => {
     portaledPicker.remove();
   });
 
-  it("opens MCP settings while Save draft mode is selected", async () => {
+  it("opens the MCP picker in Save draft mode and offers Manage", async () => {
     const onSaveDraft = vi.fn();
     const onOpen = vi.fn();
     window.addEventListener("monocode:open-mcp-settings", onOpen);
@@ -1112,8 +1192,13 @@ describe("Composer question focus", () => {
           }),
         ),
       );
-      expect(onOpen).toHaveBeenCalledOnce();
+      expect(container.querySelector("[data-mcp-picker]")).not.toBeNull();
       expect(onSaveDraft).not.toHaveBeenCalled();
+      const manage = [
+        ...container.querySelectorAll<HTMLButtonElement>("button"),
+      ].find((button) => button.textContent?.includes("Manage MCP Servers"))!;
+      await act(async () => manage.click());
+      expect(onOpen).toHaveBeenCalledOnce();
     } finally {
       window.removeEventListener("monocode:open-mcp-settings", onOpen);
     }

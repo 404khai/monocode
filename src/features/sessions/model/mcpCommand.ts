@@ -4,7 +4,7 @@ export const MCP_COMMAND: BuiltinSkill = {
   kind: "builtin",
   name: "mcp",
   invocation: "mcp",
-  description: "Open MCP server settings and authentication.",
+  description: "Find an MCP server for this message.",
   scope: "builtin",
   source: "monocode",
 };

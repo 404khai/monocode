@@ -104,7 +104,9 @@ pub async fn mcp_add(
 fn write_json_server(path: &Path, name: &str, server: Value) -> Result<(), String> {
     let mut root: Value = if path.exists() {
         let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&raw).map_err(|e| format!("Existing config is invalid JSON: {e}"))?
+        serde_json::from_str(&raw)
+            .or_else(|_| serde_json::from_str(&strip_jsonc(&raw)))
+            .map_err(|e| format!("Existing config is invalid JSON: {e}"))?
     } else {
         serde_json::json!({})
     };
@@ -499,6 +501,24 @@ mod tests {
         assert_eq!(value["mcpServers"]["existing"]["command"], "node");
         assert_eq!(value["mcpServers"]["new"]["command"], "npx");
         assert!(write_json_server(&path, "new", serde_json::json!({"command":"npx"})).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn adds_to_existing_cursor_jsonc() {
+        let root =
+            std::env::temp_dir().join(format!("monocode-mcp-jsonc-{}", uuid::Uuid::new_v4()));
+        let path = root.join(".cursor/mcp.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "{\n // existing server\n \"mcpServers\": {\"old\": {\"command\": \"node\",},},\n}",
+        )
+        .unwrap();
+        write_json_server(&path, "new", serde_json::json!({"command":"npx"})).unwrap();
+        let value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["mcpServers"]["old"]["command"], "node");
+        assert_eq!(value["mcpServers"]["new"]["command"], "npx");
         std::fs::remove_dir_all(root).unwrap();
     }
 

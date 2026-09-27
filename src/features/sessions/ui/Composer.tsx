@@ -30,6 +30,7 @@ import {
   type ReactNode,
 } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { invoke } from "@tauri-apps/api/core";
 import {
   attachmentsFromFiles,
   attachmentsFromPaths,
@@ -112,6 +113,8 @@ import {
 import type { Worktree } from "../../source-control/model/worktrees";
 import { CwdPicker } from "../../projects/ui/CwdPicker";
 import { FileMentionPicker } from "./FileMentionPicker";
+import { McpServerPicker } from "./McpServerPicker";
+import { HarnessIcon } from "./HarnessIcon";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { InboxMiniCard } from "../../inbox/ui/InboxMiniCard";
 import { NoteMiniCard } from "../../notes/ui";
@@ -169,6 +172,11 @@ import {
 } from "../model/sessionFolders";
 import { SessionFolderPicker } from "./SessionFolderPicker";
 import { MCP_COMMAND, isMcpCommand } from "../model/mcpCommand";
+import { mcpContextText } from "../model/mcpPicker";
+import {
+  parseClaudeMcpList,
+  type McpConnection,
+} from "../../settings/model/mcp";
 import type { LastTurnRecall } from "../model/editLastTurn";
 
 type Props = {
@@ -599,6 +607,12 @@ export function Composer({
   const [sessionFolderOpen, setSessionFolderOpen] = useState(false);
   const [sessionFolders, setSessionFolders] = useState<SessionFolder[]>([]);
   const [sessionFolderSelected, setSessionFolderSelected] = useState(false);
+  const [mcpPickerOpen, setMcpPickerOpen] = useState(false);
+  const [mcpConnections, setMcpConnections] = useState<McpConnection[]>([]);
+  const [mcpStatus, setMcpStatus] = useState<Map<string, string>>(new Map());
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpError, setMcpError] = useState("");
+  const [selectedMcp, setSelectedMcp] = useState<McpConnection[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>(
@@ -640,7 +654,7 @@ export function Composer({
     !noteCard &&
     !handoffCard;
   const skillPickerOpen = creatingSkill || slash !== null;
-  const pickerOpen = skillPickerOpen || sessionFolderOpen;
+  const pickerOpen = skillPickerOpen || sessionFolderOpen || mcpPickerOpen;
   const skillCatalog = useComposerSkills({
     harness,
     executionCwd,
@@ -716,6 +730,81 @@ export function Composer({
     },
     [inboxCard, noteCard, handoffCard],
   );
+
+  const openMcpPicker = useCallback(() => {
+    setMcpConnections([]);
+    setMcpStatus(new Map());
+    setMcpError("");
+    setMcpLoading(true);
+    setMcpPickerOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mcpPickerOpen) return;
+    let cancelled = false;
+    setMcpLoading(true);
+    setMcpError("");
+    void invoke<McpConnection[]>("mcp_discover", { cwd: executionCwd })
+      .then((connections) => {
+        if (!cancelled)
+          setMcpConnections((current) => [
+            ...connections,
+            ...current.filter(
+              (entry) =>
+                entry.provider === "claude" &&
+                !entry.configPath &&
+                !connections.some(
+                  (configured) =>
+                    configured.provider === "claude" &&
+                    configured.name === entry.name,
+                ),
+            ),
+          ]);
+      })
+      .catch((cause) => {
+        if (!cancelled) setMcpError(String(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setMcpLoading(false);
+      });
+    void invoke<string>("claude_mcp_list", { cwd: executionCwd })
+      .then((output) => {
+        if (cancelled) return;
+        const statuses = parseClaudeMcpList(output);
+        setMcpStatus(
+          new Map(statuses.map((server) => [server.name, server.status])),
+        );
+        setMcpConnections((current) => {
+          const combined = [...current];
+          for (const server of statuses) {
+            if (
+              !combined.some(
+                (entry) =>
+                  entry.provider === "claude" && entry.name === server.name,
+              )
+            ) {
+              combined.push({
+                provider: "claude",
+                name: server.name,
+                scope: "local",
+                configPath: "",
+                transport: "",
+              });
+            }
+          }
+          return combined;
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [executionCwd, mcpPickerOpen]);
+
+  useEffect(() => {
+    setSelectedMcp([]);
+    setMcpPickerOpen(false);
+  }, [executionCwd, harness, sessionId]);
 
   useEffect(() => {
     syncHasValue(ref.current?.value ?? "", attachmentsRef.current);
@@ -899,6 +988,8 @@ export function Composer({
     setOrchestrationSelected(false);
     setSessionFolderSelected(false);
     setSessionFolderOpen(false);
+    setMcpPickerOpen(false);
+    setSelectedMcp([]);
     setPlusOpen(false);
     setSlash(null);
     setMention(null);
@@ -1005,6 +1096,17 @@ export function Composer({
         setCreatingSkill(false);
         return;
       }
+      if (skill.kind === "builtin" && skill.name === MCP_COMMAND.name) {
+        const next = `${el.value.slice(0, token.start)}${el.value.slice(token.end).replace(/^\s/, "")}`;
+        el.value = next;
+        resizeComposer(el);
+        setDraft(next);
+        onDraftChange?.(next);
+        syncHasValue(next, attachmentsRef.current);
+        setSlash(null);
+        openMcpPicker();
+        return;
+      }
       const planCommand =
         skill.kind === "builtin" && skill.name === PLAN_COMMAND.name;
       const sessionFolderCommand =
@@ -1057,7 +1159,9 @@ export function Composer({
     },
     [
       enterBtwFromPrefix,
+      onDraftChange,
       onPlaceInFolder,
+      openMcpPicker,
       openSessionFolderPicker,
       syncHasValue,
     ],
@@ -1104,7 +1208,7 @@ export function Composer({
 
     if (
       composer?.querySelector(
-        "[data-skill-picker], [data-session-folder-picker], [data-mention-picker], [data-composer-plus], [data-question-form]",
+        "[data-skill-picker], [data-session-folder-picker], [data-mention-picker], [data-mcp-picker], [data-composer-plus], [data-question-form]",
       )
     )
       return;
@@ -1301,6 +1405,8 @@ export function Composer({
     setPlusOpen(false);
     setSlash(null);
     setMention(null);
+    setMcpPickerOpen(false);
+    setSelectedMcp([]);
     syncHasValue("", []);
     ref.current?.focus();
   }, [onDraftChange, onEditingLastTurnChange, syncHasValue]);
@@ -1355,13 +1461,13 @@ export function Composer({
       onDraftChange?.("");
       setSlash(null);
       syncHasValue("", attachments);
-      window.dispatchEvent(new Event("monocode:open-mcp-settings"));
+      openMcpPicker();
       return;
     }
     if (draftSelected && onSaveDraft) {
       const files = attachments;
       if (!value.trim() && files.length === 0) return;
-      const accepted = onSaveDraft(value, files);
+      const accepted = onSaveDraft(mcpContextText(selectedMcp, value), files);
       if (accepted === false || !ref.current) return;
       ref.current.value = "";
       ref.current.style.height = "auto";
@@ -1369,6 +1475,7 @@ export function Composer({
       onDraftChange?.("");
       setAttachments([]);
       setDraftSelected(false);
+      setSelectedMcp([]);
       setPlusOpen(false);
       setSlash(null);
       setMention(null);
@@ -1446,26 +1553,32 @@ export function Composer({
     const resendBorrowedAttachmentIds = new Set(
       borrowedAttachmentIdsRef.current,
     );
+    const resendSelectedMcp = selectedMcp;
     onDraftChange?.("");
-    const accepted = onSubmit(submittedText, files, {
-      intent:
-        planSelected || command.planning
-          ? "plan"
-          : orchestrationSelected
-            ? "orchestrate"
-            : "default",
-      ...(resendEdited
-        ? {
-            resendEdited: true,
-            onResendRejected: ({ providerRewound }) => {
-              if (draftRevisionRef.current !== resendDraftRevision) return;
-              restoreDraft(text, files, resendBorrowedAttachmentIds);
-              setResendEdited(!providerRewound);
-              onEditingLastTurnChange?.(!providerRewound);
-            },
-          }
-        : {}),
-    });
+    const accepted = onSubmit(
+      mcpContextText(selectedMcp, submittedText),
+      files,
+      {
+        intent:
+          planSelected || command.planning
+            ? "plan"
+            : orchestrationSelected
+              ? "orchestrate"
+              : "default",
+        ...(resendEdited
+          ? {
+              resendEdited: true,
+              onResendRejected: ({ providerRewound }) => {
+                if (draftRevisionRef.current !== resendDraftRevision) return;
+                restoreDraft(text, files, resendBorrowedAttachmentIds);
+                setSelectedMcp(resendSelectedMcp);
+                setResendEdited(!providerRewound);
+                onEditingLastTurnChange?.(!providerRewound);
+              },
+            }
+          : {}),
+      },
+    );
     // The app can reject a turn before it is recorded (for example while an
     // orchestration is paused). Keep the user's text, files and selected mode
     // intact so resolving the blocker never destroys their work.
@@ -1482,6 +1595,7 @@ export function Composer({
     borrowedAttachmentIdsRef.current.clear();
     attachmentsRef.current = [];
     setAttachments([]);
+    setSelectedMcp([]);
     setResendEdited(false);
     onEditingLastTurnChange?.(false);
     setPlanSelected(false);
@@ -1722,7 +1836,40 @@ export function Composer({
         onResume={onResumeQueue}
       />
       <div className="relative overflow-visible">
-        {sessionFolderOpen ? (
+        {mcpPickerOpen ? (
+          <div className="absolute inset-x-0 bottom-full z-30 mb-1">
+            <McpServerPicker
+              connections={mcpConnections}
+              harness={harness}
+              claudeStatus={mcpStatus}
+              loading={mcpLoading}
+              error={mcpError}
+              onPick={(server) => {
+                setSelectedMcp((current) =>
+                  current.some(
+                    (item) =>
+                      item.provider === server.provider &&
+                      item.name === server.name &&
+                      item.scope === server.scope &&
+                      item.configPath === server.configPath,
+                  )
+                    ? current
+                    : [...current, server],
+                );
+                setMcpPickerOpen(false);
+                ref.current?.focus();
+              }}
+              onManage={() => {
+                setMcpPickerOpen(false);
+                window.dispatchEvent(new Event("monocode:open-mcp-settings"));
+              }}
+              onDismiss={() => {
+                setMcpPickerOpen(false);
+                ref.current?.focus();
+              }}
+            />
+          </div>
+        ) : sessionFolderOpen ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-1">
             <SessionFolderPicker
               folders={sessionFolders}
@@ -1923,6 +2070,42 @@ export function Composer({
               </div>
             </div>
           )}
+
+          {selectedMcp.length > 0 ? (
+            <div
+              className="flex flex-wrap gap-1.5 px-3 pt-2"
+              aria-label="Selected MCP context"
+            >
+              {selectedMcp.map((server) => (
+                <span
+                  key={`${server.provider}:${server.scope}:${server.configPath}:${server.name}`}
+                  className="inline-flex h-6 items-center gap-1.5 rounded-md border border-content/10 bg-content/5 px-2 text-[11px] text-content/75"
+                >
+                  <HarnessIcon
+                    harness={
+                      server.provider === "claude_desktop"
+                        ? "claude"
+                        : server.provider
+                    }
+                    className="size-3.5"
+                  />
+                  MCP: {server.name}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${server.name} MCP context`}
+                    onClick={() =>
+                      setSelectedMcp((current) =>
+                        current.filter((item) => item !== server),
+                      )
+                    }
+                    className="ml-0.5 rounded text-content/45 hover:text-content"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {attachments.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2">

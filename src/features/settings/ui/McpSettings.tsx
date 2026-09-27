@@ -456,7 +456,7 @@ export function McpSettings({ cwd }: { cwd: string }) {
         </div>
       </div>
       <div
-        role="radiogroup"
+        role="group"
         className="inline-flex max-w-full flex-wrap gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px]"
         aria-label="Filter MCP servers by provider"
       >
@@ -464,8 +464,7 @@ export function McpSettings({ cwd }: { cwd: string }) {
           <button
             key={provider}
             type="button"
-            role="radio"
-            aria-checked={filter === provider}
+            aria-pressed={filter === provider}
             onClick={() => setFilter(provider)}
             className={`inline-flex min-w-0 items-center gap-1.5 rounded-[5px] px-2.5 py-1 ${filter === provider ? "bg-selection text-content" : "text-content/50 hover:text-content"}`}
           >
