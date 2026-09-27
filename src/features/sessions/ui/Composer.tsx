@@ -1863,9 +1863,9 @@ export function Composer({
                 setMcpPickerOpen(false);
                 window.dispatchEvent(new Event("monocode:open-mcp-settings"));
               }}
-              onDismiss={() => {
+              onDismiss={(reason) => {
                 setMcpPickerOpen(false);
-                ref.current?.focus();
+                if (reason === "escape") ref.current?.focus();
               }}
             />
           </div>

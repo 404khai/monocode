@@ -298,6 +298,78 @@ describe("Composer question focus", () => {
     }
   });
 
+  it("shows four MCP rows at a time and dismisses on outside click or Escape", async () => {
+    mcpInvoke.mockImplementation(async (command: string) =>
+      command === "mcp_discover"
+        ? Array.from({ length: 6 }, (_, index) => ({
+            provider: "claude",
+            name: `server-${index}`,
+            scope: "project",
+            configPath: "/repo/.mcp.json",
+            transport: "stdio",
+          }))
+        : "",
+    );
+    await renderComposer(undefined, vi.fn(), false, 0, "/mcp");
+    const textarea = container.querySelector("textarea")!;
+    const openPicker = async () => {
+      await act(async () =>
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+    };
+    await openPicker();
+
+    const list = container.querySelector<HTMLElement>(
+      '[data-mcp-picker] [role="listbox"]',
+    )!;
+    expect(list.querySelectorAll('[role="option"]')).toHaveLength(6);
+    expect(list.classList.contains("max-h-[min(184px,45vh)]")).toBe(true);
+    expect(
+      list.querySelector('[role="option"]')?.classList.contains("h-11"),
+    ).toBe(true);
+    expect(container.querySelector("[data-mcp-picker]")?.className).toContain(
+      "bg-content/5",
+    );
+
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    await act(async () => {
+      outside.focus();
+      outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-mcp-picker]")).toBeNull();
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+
+    await typeInto(textarea, "/mcp");
+    await openPicker();
+    const search = container.querySelector<HTMLInputElement>(
+      '[aria-label="Search MCP servers"]',
+    )!;
+    await act(async () =>
+      search.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(container.querySelector("[data-mcp-picker]")).toBeNull();
+    expect(document.activeElement).toBe(textarea);
+
+    await typeInto(textarea, "/mcp");
+    await openPicker();
+    const close = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Close MCP picker"]',
+    )!;
+    expect(close.title).toContain("Esc");
+    await act(async () => close.click());
+    expect(container.querySelector("[data-mcp-picker]")).toBeNull();
+  });
+
   it("keeps the draft when onBtwCommand rejects the command", async () => {
     const onBtwCommand = vi.fn(() => false);
     const onSubmit = vi.fn();

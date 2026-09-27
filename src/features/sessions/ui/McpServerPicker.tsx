@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Settings } from "../../../shared/ui/icons";
+import { ChevronDown, Search, Settings } from "../../../shared/ui/icons";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { HarnessIcon } from "./HarnessIcon";
 import {
@@ -26,11 +26,12 @@ export function McpServerPicker({
   error: string;
   onPick: (server: McpConnection) => void;
   onManage: () => void;
-  onDismiss: () => void;
+  onDismiss: (reason: "escape" | "outside") => void;
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const search = useRef<HTMLInputElement>(null);
+  const picker = useRef<HTMLDivElement>(null);
   const activeOption = useRef<HTMLButtonElement>(null);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const servers = useMemo(
@@ -50,11 +51,33 @@ export function McpServerPicker({
   useEffect(() => {
     activeOption.current?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
+  useEffect(() => {
+    const dismissOutside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !picker.current?.contains(event.target)
+      ) {
+        onDismiss("outside");
+      }
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    return () => document.removeEventListener("pointerdown", dismissOutside);
+  }, [onDismiss]);
 
   return (
     <div
+      ref={picker}
       data-mcp-picker
-      className="overflow-hidden rounded-lg border border-content/10 bg-background-base/95 shadow-xl backdrop-blur-xl"
+      role="dialog"
+      aria-label="Choose an MCP server"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onDismiss("escape");
+        }
+      }}
+      className="overflow-hidden rounded-lg border border-content/10 bg-content/5 shadow-xl backdrop-blur-xl"
     >
       <div className="flex items-center gap-2 border-b border-content/10 px-3 py-2">
         <Search className="size-3.5 shrink-0 text-content/45" />
@@ -64,10 +87,6 @@ export function McpServerPicker({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onDismiss();
-            }
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               if (selectable.length === 0) return;
@@ -88,12 +107,21 @@ export function McpServerPicker({
           className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/40"
           placeholder="Search MCP servers…"
         />
+        <button
+          type="button"
+          aria-label="Close MCP picker"
+          title="Back to the conversation (Esc)"
+          onClick={() => onDismiss("escape")}
+          className="grid size-7 shrink-0 place-items-center rounded-md text-content/45 transition-colors hover:bg-content/8 hover:text-content focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+        >
+          <ChevronDown className="size-4" strokeWidth={1.75} />
+        </button>
       </div>
       <div
         ref={lockOverscroll}
         role="listbox"
         aria-label="MCP servers"
-        className="max-h-[min(280px,45vh)] overflow-y-auto overscroll-none p-1"
+        className="max-h-[min(184px,45vh)] overflow-y-auto overscroll-none p-1"
       >
         {loading ? (
           <p className="px-2 py-2 text-[12px] text-content/50">
@@ -123,7 +151,7 @@ export function McpServerPicker({
                   if (available) setActive(index);
                 }}
                 onClick={() => onPick(server)}
-                className={`flex min-h-10 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${available ? (active === index ? "bg-selection text-content" : "text-content hover:bg-content/5") : "cursor-default text-content/40"}`}
+                className={`flex h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${available ? (active === index ? "bg-selection text-content" : "text-content hover:bg-content/5") : "cursor-default text-content/40"}`}
               >
                 <HarnessIcon
                   harness={

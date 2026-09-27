@@ -24,9 +24,9 @@ fn claude_desktop_config(home: &Path) -> PathBuf {
     }
 }
 
-fn server_from_json(name: &str, config: &str) -> Result<(String, Value), String> {
+fn server_from_json(provider: &str, name: &str, config: &str) -> Result<(String, Value), String> {
     let value: Value = serde_json::from_str(config).map_err(|e| format!("Invalid JSON: {e}"))?;
-    let (name, server) = if let Some(servers) = value.get("mcpServers") {
+    let (name, mut server) = if let Some(servers) = value.get("mcpServers") {
         let servers = servers.as_object().ok_or("mcpServers must be an object")?;
         if servers.len() != 1 {
             return Err("Add one server at a time".into());
@@ -39,8 +39,11 @@ fn server_from_json(name: &str, config: &str) -> Result<(String, Value), String>
     } else {
         (name.trim().to_owned(), value)
     };
-    if name.is_empty()
-        || !name
+    if name.is_empty() || name.chars().any(char::is_control) {
+        return Err("Server name cannot be empty or contain control characters".into());
+    }
+    if provider != "opencode"
+        && !name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
@@ -48,6 +51,28 @@ fn server_from_json(name: &str, config: &str) -> Result<(String, Value), String>
     }
     if !server.is_object() {
         return Err("Server configuration must be an object".into());
+    }
+    if provider == "opencode" {
+        if let Some(parts) = server.get("command").and_then(Value::as_array) {
+            let parts = parts
+                .iter()
+                .map(|part| {
+                    part.as_str()
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_owned)
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or("OpenCode command must contain non-empty strings")?;
+            let (command, args) = parts
+                .split_first()
+                .ok_or("OpenCode command cannot be empty")?;
+            let object = server.as_object_mut().unwrap();
+            if object.contains_key("args") {
+                return Err("Use either a command array or separate args".into());
+            }
+            object.insert("command".into(), Value::String(command.clone()));
+            object.insert("args".into(), serde_json::json!(args));
+        }
     }
     let command = server
         .get("command")
@@ -71,7 +96,7 @@ pub async fn mcp_add(
     name: String,
     config: String,
 ) -> Result<(), String> {
-    let (name, server) = server_from_json(&name, &config)?;
+    let (name, server) = server_from_json(&provider, &name, &config)?;
     tauri::async_runtime::spawn_blocking(move || {
         let home = dirs_home().ok_or("Home directory not found")?;
         let project = expand_home(&cwd);
@@ -102,6 +127,21 @@ pub async fn mcp_add(
 }
 
 fn write_json_server(path: &Path, name: &str, server: Value) -> Result<(), String> {
+    let parent = path.parent().ok_or("Invalid config path")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let lock_path = parent.join(format!(
+        ".{}.lock",
+        path.file_name()
+            .and_then(|part| part.to_str())
+            .unwrap_or("mcp")
+    ));
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(lock_path)
+        .map_err(|e| e.to_string())?;
+    lock.lock().map_err(|e| e.to_string())?;
     let mut root: Value = if path.exists() {
         let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&raw)
@@ -124,8 +164,6 @@ fn write_json_server(path: &Path, name: &str, server: Value) -> Result<(), Strin
     }
     servers.insert(name.to_owned(), server);
     let encoded = serde_json::to_vec_pretty(&root).map_err(|e| e.to_string())?;
-    let parent = path.parent().ok_or("Invalid config path")?;
-    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let temporary = parent.join(format!(
         ".{}.{}.tmp",
         path.file_name()
@@ -143,9 +181,6 @@ fn write_json_server(path: &Path, name: &str, server: Value) -> Result<(), Strin
             options.mode(0o600);
         }
         let mut file = options.open(&temporary)?;
-        if let Ok(metadata) = std::fs::metadata(path) {
-            file.set_permissions(metadata.permissions())?;
-        }
         file.write_all(&encoded)?;
         file.sync_all()?;
         std::fs::rename(&temporary, path)
@@ -468,6 +503,7 @@ mod tests {
     #[test]
     fn parses_single_server_from_standard_json() {
         let (name, server) = server_from_json(
+            "claude",
             "",
             r#"{"mcpServers":{"docs":{"command":"npx","args":["server"]}}}"#,
         )
@@ -475,13 +511,72 @@ mod tests {
         assert_eq!(name, "docs");
         assert_eq!(server["command"], "npx");
         assert!(server_from_json(
+            "claude",
             "",
             r#"{"mcpServers":{"one":{"command":"npx"},"two":{"command":"node"}}}"#
         )
         .is_err());
-        assert!(
-            server_from_json("different", r#"{"mcpServers":{"docs":{"command":"npx"}}}"#).is_err()
+        assert!(server_from_json(
+            "claude",
+            "different",
+            r#"{"mcpServers":{"docs":{"command":"npx"}}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn accepts_opencode_names_and_command_arrays() {
+        let (name, server) = server_from_json(
+            "opencode",
+            "docs server",
+            r#"{"type":"local","command":["npx","-y","server"]}"#,
+        )
+        .unwrap();
+        assert_eq!(name, "docs server");
+        assert_eq!(server["command"], "npx");
+        assert_eq!(server["args"], serde_json::json!(["-y", "server"]));
+        assert!(server_from_json("claude", "docs server", r#"{"command":"npx"}"#).is_err());
+        assert!(server_from_json("opencode", "docs", r#"{"command":[]}"#).is_err());
+    }
+
+    #[test]
+    fn concurrent_additions_keep_every_server() {
+        let root = std::env::temp_dir().join(format!("monocode-mcp-lock-{}", uuid::Uuid::new_v4()));
+        let path = root.join(".cursor/mcp.json");
+        std::thread::scope(|scope| {
+            for index in 0..8 {
+                let path = path.clone();
+                scope.spawn(move || {
+                    write_json_server(
+                        &path,
+                        &format!("server-{index}"),
+                        serde_json::json!({"command":"npx"}),
+                    )
+                    .unwrap();
+                });
+            }
+        });
+        let value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["mcpServers"].as_object().unwrap().len(), 8);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_config_restricts_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!("monocode-mcp-mode-{}", uuid::Uuid::new_v4()));
+        let path = root.join("mcp.json");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&path, r#"{"mcpServers":{}}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_json_server(&path, "new", serde_json::json!({"command":"npx"})).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
         );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

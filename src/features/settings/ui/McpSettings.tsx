@@ -81,7 +81,7 @@ function McpPicker<T extends string>({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="mt-1 flex h-8 w-full items-center gap-2 rounded-md border border-content/10 bg-content/5 px-2 text-left text-[12px] text-content outline-none hover:border-content/20"
+        className="mt-1 flex h-8 w-full items-center gap-2 rounded-md border border-content/10 bg-content/5 px-2 text-left text-[12px] text-content outline-none hover:border-content/20 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
       >
         {selected?.icon}
         <span className="min-w-0 flex-1 truncate">
@@ -105,6 +105,27 @@ function McpPicker<T extends string>({
           role="listbox"
           aria-label={label}
           data-dialog-popover
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+            event.preventDefault();
+            const choices = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                '[role="option"]',
+              ),
+            );
+            if (choices.length === 0) return;
+            const current = choices.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            const direction = event.key === "ArrowDown" ? 1 : -1;
+            const next =
+              current < 0
+                ? direction === 1
+                  ? 0
+                  : choices.length - 1
+                : (current + direction + choices.length) % choices.length;
+            choices[next].focus();
+          }}
           className="overflow-y-auto overscroll-contain p-1"
         >
           {options.map((option) => (
@@ -118,7 +139,7 @@ function McpPicker<T extends string>({
                 setOpen(false);
                 trigger.current?.focus();
               }}
-              className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] ${value === option.value ? "bg-selection text-content" : "text-content hover:bg-content/5"}`}
+              className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] focus-visible:outline-2 focus-visible:outline-accent ${value === option.value ? "bg-selection text-content" : "text-content hover:bg-content/5"}`}
             >
               {option.icon}
               <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -530,6 +551,7 @@ export function McpSettings({ cwd }: { cwd: string }) {
                 ) : null}
               </div>
               {server.provider !== "claude_desktop" &&
+              server.transport &&
               !["stdio", "local", "ws"].includes(server.transport) ? (
                 <button
                   type="button"

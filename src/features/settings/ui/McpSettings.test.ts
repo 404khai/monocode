@@ -133,6 +133,63 @@ it("adds a standard mcpServers entry to the selected provider", async () => {
   });
 });
 
+it("navigates provider choices with arrow keys", async () => {
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="Add MCP server"]')!
+      .click(),
+  );
+  await act(async () =>
+    document.body
+      .querySelector<HTMLButtonElement>('[aria-label="Provider: Claude Code"]')!
+      .click(),
+  );
+  const list = document.body.querySelector<HTMLElement>(
+    '[role="listbox"][aria-label="Provider"]',
+  )!;
+  const options = list.querySelectorAll<HTMLButtonElement>('[role="option"]');
+  await act(async () =>
+    list.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(options[0]);
+  await act(async () =>
+    options[0].dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(options[options.length - 1]);
+});
+
+it("hides Sign in when a server has no known transport", async () => {
+  invoke.mockImplementation(async (command: string) =>
+    command === "mcp_discover"
+      ? [
+          {
+            provider: "claude",
+            name: "unknown",
+            scope: "local",
+            configPath: "",
+            transport: "",
+          },
+        ]
+      : "",
+  );
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  expect(container.textContent).toContain("unknown");
+  expect(
+    [...container.querySelectorAll("button")].some(
+      (button) => button.textContent === "Sign in",
+    ),
+  ).toBe(false);
+});
+
 it("shows only configured provider chips until the filter button reveals all", async () => {
   await act(async () =>
     root.render(createElement(McpSettings, { cwd: "/repo" })),
