@@ -1,5 +1,11 @@
 import { expect, it } from "vitest";
-import { mcpContextText, mcpPickerServers } from "./mcpPicker";
+import {
+  mcpContextText,
+  mcpPickerServers,
+  mcpTagParts,
+  newMcpTag,
+  taggedMcpServers,
+} from "./mcpPicker";
 import type { McpConnection } from "../../settings/model/mcp";
 
 const servers: McpConnection[] = [
@@ -50,4 +56,18 @@ it("adds only selected server names to outgoing context", () => {
     '"docs" (claude)',
   );
   expect(mcpContextText([], "Find the docs")).toBe("Find the docs");
+});
+
+it("keeps MCP references inline and only uses tags still in the draft", () => {
+  const docs = newMcpTag(servers[2], []);
+  const anotherDocs = newMcpTag({ ...servers[2], provider: "cursor" }, [docs]);
+  expect(docs.token).toBe("@mcp/docs");
+  expect(anotherDocs.token).toBe("@mcp/cursor/docs");
+  const text = `Ask ${docs.token} about this, then ${anotherDocs.token}.`;
+  expect(
+    mcpTagParts(text, [docs, anotherDocs]).filter((part) => part.tag),
+  ).toHaveLength(2);
+  expect(taggedMcpServers(text, [docs, anotherDocs])).toHaveLength(2);
+  expect(taggedMcpServers(`Ask ${docs.token}2 about this`, [docs])).toEqual([]);
+  expect(taggedMcpServers("Ask about this", [docs])).toEqual([]);
 });

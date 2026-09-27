@@ -274,8 +274,14 @@ describe("Composer question focus", () => {
         ),
       ].find((button) => button.textContent?.includes("docs"))!;
       await act(async () => available.click());
-      expect(container.textContent).toContain("MCP: docs");
-      await typeInto(textarea, "Find the docs");
+      expect(textarea.value).toBe("@mcp/docs ");
+      expect(
+        container.querySelector('[data-mcp-tag="@mcp/docs"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[aria-label="Selected MCP context"]'),
+      ).toBeNull();
+      await typeInto(textarea, `${textarea.value}Find the docs`);
       await act(async () =>
         textarea.dispatchEvent(
           new KeyboardEvent("keydown", {
@@ -290,7 +296,7 @@ describe("Composer question focus", () => {
         expect.any(Array),
         expect.any(Object),
       );
-      expect(container.textContent).not.toContain("MCP: docs");
+      expect(container.querySelector('[data-mcp-tag="@mcp/docs"]')).toBeNull();
       expect(onOpen).not.toHaveBeenCalled();
       expect(textarea.value).toBe("");
     } finally {
@@ -392,6 +398,75 @@ describe("Composer question focus", () => {
     expect(close.title).toContain("Esc");
     await act(async () => close.click());
     expect(container.querySelector("[data-mcp-picker]")).toBeNull();
+  });
+
+  it("removes MCP context when its inline tag is deleted", async () => {
+    const onSubmit = vi.fn();
+    await renderComposer(
+      undefined,
+      vi.fn(),
+      false,
+      0,
+      "/mcp",
+      undefined,
+      onSubmit,
+    );
+    const textarea = container.querySelector("textarea")!;
+    await act(async () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    const docs = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[data-mcp-picker] [role="option"]',
+      ),
+    ].find((button) => button.textContent?.includes("docs"))!;
+    await act(async () => docs.click());
+    expect(textarea.value).toContain("@mcp/docs");
+    await typeInto(textarea, "Find the docs");
+    expect(container.querySelector("[data-mcp-tag]")).toBeNull();
+    await act(async () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Find the docs",
+      expect.any(Array),
+      expect.any(Object),
+    );
+  });
+
+  it("inserts an MCP tag beside existing composer text", async () => {
+    await renderComposer(undefined, vi.fn());
+    const textarea = container.querySelector("textarea")!;
+    await typeInto(textarea, "sad /mcp");
+    const command = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[data-skill-picker] [role="option"]',
+      ),
+    ].find((button) => button.textContent?.includes("/mcp"))!;
+    expect(command).toBeDefined();
+    await act(async () => command.click());
+    const docs = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[data-mcp-picker] [role="option"]',
+      ),
+    ].find((button) => button.textContent?.includes("docs"))!;
+    await act(async () => docs.click());
+    expect(textarea.value).toBe("sad @mcp/docs ");
+    expect(
+      container.querySelector('[data-mcp-tag="@mcp/docs"]'),
+    ).not.toBeNull();
   });
 
   it("keeps the draft when onBtwCommand rejects the command", async () => {
