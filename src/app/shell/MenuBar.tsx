@@ -11,6 +11,7 @@ import {
   loadAutosave,
   loadKeybindingOverrides,
   saveAutosave,
+  subscribeAutosave,
   subscribeKeybindings,
 } from "../../features/settings/model/settings";
 
@@ -69,6 +70,11 @@ export function MenuBar({
   useEffect(
     () =>
       subscribeKeybindings(() => refreshShortcuts(loadKeybindingOverrides())),
+    [],
+  );
+
+  useEffect(
+    () => subscribeAutosave(() => setAutosave(loadAutosave())),
     [],
   );
 
@@ -172,8 +178,7 @@ export function MenuBar({
           onCloseAllTabs?.();
           break;
         case "toggle_autosave": {
-          const next = !autosave;
-          saveAutosave(next);
+          const next = saveAutosave(!loadAutosave());
           setAutosave(next);
           break;
         }

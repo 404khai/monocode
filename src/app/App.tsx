@@ -9886,7 +9886,10 @@ export default function App({
       ),
       listen("close_tab", () => run("close", actions.current.onClosePane)),
       listen<boolean>("toggle_autosave", ({ payload }) => {
-        saveAutosave(payload);
+        const saved = saveAutosave(payload);
+        if (saved !== payload && IS_MAC) {
+          void invoke("autosave_set_enabled", { enabled: saved });
+        }
       }),
       listen("next_tab", () => run("next", actions.current.onNext)),
       listen("prev_tab", () => run("prev", actions.current.onPrev)),

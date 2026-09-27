@@ -133,6 +133,34 @@ describe("file editor line endings", () => {
     expect(written.content).toBeNull();
   });
 
+  it("restores a pending autosave after a manual save fails", async () => {
+    disk.content = "alpha\n";
+    let writeAttempts = 0;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "write_text_file" && ++writeAttempts === 1) {
+        throw new Error("disk unavailable");
+      }
+      return defaultInvoke(command, args);
+    });
+    const view = await renderEditor("/repo/notes.txt");
+    vi.useFakeTimers();
+
+    await act(async () => {
+      view.dispatch({ changes: { from: 0, insert: "changed " } });
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "s", ctrlKey: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(writeAttempts).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS);
+    });
+    expect(writeAttempts).toBe(2);
+    expect(written.content).toBe("changed alpha\n");
+  });
+
   it("preserves queued save line endings after switching files", async () => {
     let releaseFirstWrite!: () => void;
     const firstWrite = new Promise<void>((resolve) => {

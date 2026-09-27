@@ -693,6 +693,7 @@ function CodeMirrorEditor({
     };
 
     const save = () => {
+      const retryPendingAutosave = autosaveTimer !== 0 && loadAutosave();
       window.clearTimeout(autosaveTimer);
       const generation = ++saveGeneration;
       void (async () => {
@@ -725,6 +726,14 @@ function CodeMirrorEditor({
         try {
           await onSaveRef.current(document.toString());
         } catch {
+          if (
+            retryPendingAutosave &&
+            !disposed &&
+            generation === saveGeneration &&
+            dirtyRef.current
+          ) {
+            scheduleAutosave();
+          }
           return;
         }
         if (disposed || generation !== saveGeneration) return;
@@ -734,14 +743,14 @@ function CodeMirrorEditor({
       return true;
     };
 
-    const scheduleAutosave = () => {
+    function scheduleAutosave() {
       window.clearTimeout(autosaveTimer);
       if (!loadAutosave()) return;
       autosaveTimer = window.setTimeout(() => {
         autosaveTimer = 0;
         if (dirtyRef.current && loadAutosave()) save();
       }, FILE_EDITOR_AUTOSAVE_DELAY_MS);
-    };
+    }
 
     view = new EditorView({
       doc: valueRef.current,
