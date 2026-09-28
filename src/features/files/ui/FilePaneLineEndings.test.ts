@@ -10,6 +10,7 @@ import { invalidateWatchedFiles } from "../model/fileWatch";
 
 const disk = vi.hoisted(() => ({ content: "" }));
 const written = vi.hoisted(() => ({ content: null as string | null }));
+const formatText = vi.hoisted(() => vi.fn(async () => null));
 const invoke = vi.hoisted(() =>
   vi.fn(async (command: string, args?: Record<string, unknown>) => {
     if (command === "read_text_file") return disk.content;
@@ -25,6 +26,7 @@ vi.mock("@tauri-apps/api/core", async (original) => ({
   ...(await original<typeof import("@tauri-apps/api/core")>()),
   invoke,
 }));
+vi.mock("../../../shared/lib/format", () => ({ formatText }));
 const defaultInvoke = invoke.getMockImplementation()!;
 
 describe("file editor line endings", () => {
@@ -35,6 +37,8 @@ describe("file editor line endings", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("localStorage", new Storage());
     invoke.mockClear();
+    formatText.mockReset();
+    formatText.mockResolvedValue(null);
     written.content = null;
     saveAutosave(true);
     container = document.createElement("div");
@@ -145,6 +149,39 @@ describe("file editor line endings", () => {
       disk.content = "external\n";
       invalidateWatchedFiles([path]);
       await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS);
+    });
+
+    expect(written.content).toBeNull();
+    expect(view.state.doc.toString()).toBe("local alpha\n");
+  });
+
+  it("does not autosave an external change detected during formatting", async () => {
+    disk.content = "alpha\n";
+    const path = "/repo/notes.ts";
+    let finishFormatting!: (value: {
+      formatted: string;
+      cursorOffset: number;
+    }) => void;
+    formatText.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishFormatting = resolve;
+        }),
+    );
+    const view = await renderEditor(path);
+    vi.useFakeTimers();
+
+    await act(async () => {
+      view.dispatch({ changes: { from: 0, insert: "local " } });
+      await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS);
+    });
+    expect(formatText).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      disk.content = "external\n";
+      invalidateWatchedFiles([path]);
+      finishFormatting({ formatted: "local alpha\n", cursorOffset: 6 });
+      await Promise.resolve();
     });
 
     expect(written.content).toBeNull();

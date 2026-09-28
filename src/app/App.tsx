@@ -9672,13 +9672,12 @@ export default function App({
 
   useEffect(() => {
     if (!IS_MAC) return;
-    void invoke("autosave_set_enabled", { enabled: loadAutosave() })
-      .then(() =>
-        invoke("keybindings_set_overrides", {
-          overrides: loadKeybindingOverrides(),
-        }),
-      )
-      .catch(console.error);
+    void invoke("autosave_set_enabled", { enabled: loadAutosave() }).catch(
+      console.error,
+    );
+    void invoke("keybindings_set_overrides", {
+      overrides: loadKeybindingOverrides(),
+    }).catch(console.error);
   }, []);
 
   useEffect(() => {

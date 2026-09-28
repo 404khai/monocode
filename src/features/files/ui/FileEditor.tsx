@@ -698,7 +698,7 @@ function CodeMirrorEditor({
       setDirty(saved ? !view.state.doc.eq(saved) : false);
     };
 
-    const save = () => {
+    const save = (automatic = false) => {
       const retryPendingAutosave = autosaveTimer !== 0 && loadAutosave();
       window.clearTimeout(autosaveTimer);
       const generation = ++saveGeneration;
@@ -729,6 +729,7 @@ function CodeMirrorEditor({
         }
 
         const document = view.state.doc;
+        if (automatic && !canAutosaveRef.current()) return;
         try {
           await onSaveRef.current(document.toString());
         } catch {
@@ -759,7 +760,7 @@ function CodeMirrorEditor({
           loadAutosave() &&
           canAutosaveRef.current()
         ) {
-          save();
+          save(true);
         }
       }, FILE_EDITOR_AUTOSAVE_DELAY_MS);
     }
@@ -787,7 +788,7 @@ function CodeMirrorEditor({
         Prec.high(
           keymap.of([
             ...foldKeymap,
-            { key: "Mod-s", run: save, preventDefault: true },
+            { key: "Mod-s", run: () => save(), preventDefault: true },
             {
               key: "Tab",
               run: (view) => {
