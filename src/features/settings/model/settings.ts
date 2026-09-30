@@ -19,6 +19,7 @@ const SECTION_KEY = "monocode.settingsSection";
 
 export type SettingsSectionId =
   | "general"
+  | "connections"
   | "appearance"
   | "keybindings"
   | "chat"
@@ -55,6 +56,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description:
       "The build you are running, how MonoCode reaches you, and the panels it shows.",
     keywords: "version update sounds notifications notes rail",
+  },
+  {
+    id: "connections",
+    group: "app",
+    label: "Connections",
+    description: "Connect your machines and run agents remotely through SSH.",
+    keywords: "ssh remote host machine server environment always on",
   },
   {
     id: "appearance",
@@ -154,6 +162,7 @@ export type SettingsEntry = {
 };
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
+  { id: "remote-machines", section: "connections", label: "Your machines", keywords: "ssh remote connect host server environment" },
   {
     id: "mcp-servers",
     section: "mcp",
@@ -359,7 +368,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     id: "provider-accounts",
     section: "providers",
     label: "Provider accounts",
-    keywords: "account sign in login rename remove delete credentials profile",
+    keywords:
+      "account sign in login rename remove delete credentials profile usage limit quota exhausted",
   },
   {
     id: "claude-hooks",
@@ -881,6 +891,37 @@ export function loadFormatOnSave(): boolean {
 
 export function saveFormatOnSave(value: boolean) {
   writeFlag(FORMAT_ON_SAVE_KEY, value);
+}
+
+const AUTOSAVE_KEY = "monocode.autosave";
+const AUTOSAVE_CHANGE_EVENT = "monocode:autosave-change";
+
+export const AUTOSAVE_DEFAULT = false;
+
+export function loadAutosave(): boolean {
+  return readFlag(AUTOSAVE_KEY) ?? AUTOSAVE_DEFAULT;
+}
+
+export function saveAutosave(value: boolean): boolean {
+  writeFlag(AUTOSAVE_KEY, value);
+  const saved = loadAutosave();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(AUTOSAVE_CHANGE_EVENT));
+  }
+  return saved;
+}
+
+export function subscribeAutosave(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === AUTOSAVE_KEY) onStoreChange();
+  };
+  window.addEventListener(AUTOSAVE_CHANGE_EVENT, onStoreChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(AUTOSAVE_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 const CLAUDE_HOOKS_KEY = "monocode.claudeHooks";

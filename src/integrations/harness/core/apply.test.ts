@@ -195,6 +195,35 @@ describe("streamed markdown", () => {
     expect(session.blocks[0]?.text).toBe(chunks.join(""));
   });
 
+  it("stores generated images as standalone blocks without assistant text", () => {
+    const session = applyHarnessEvent(
+      newSession("codex", "/tmp"),
+      {
+        type: "image.generated",
+        itemId: "image_1",
+        path: "/app-data/generated-images/image.png",
+        name: "generated-image",
+        mimeType: "image/png",
+        size: 8,
+        alt: "A clean product photo",
+      },
+    );
+
+    expect(session.blocks).toMatchObject([
+      {
+        role: "image",
+        text: "",
+        image: {
+          path: "/app-data/generated-images/image.png",
+          name: "generated-image",
+          mimeType: "image/png",
+          size: 8,
+          alt: "A clean product photo",
+        },
+      },
+    ]);
+  });
+
   it("does not double an assistant block when a completed snapshot repeats it", () => {
     let session = newSession("claude", "/tmp");
     session = applyHarnessEvent(session, {
@@ -1119,6 +1148,38 @@ describe("subagent steps", () => {
         text: "Read src/App.tsx",
       }),
     ).toBe(session);
+  });
+
+  it("caps a failed step's error output like the parent's own", () => {
+    let session = spawn();
+    session = applyHarnessEvent(session, {
+      type: "agent.step",
+      callId: "agent-1",
+      stepId: "t1",
+      kind: "tool",
+      text: "npm test",
+      status: "failed",
+      detail: "boom ".repeat(4_000),
+    });
+
+    const detail = session.blocks[0].agentRun?.steps[0].detail ?? "";
+    expect(detail.length).toBeLessThanOrEqual(8_002);
+    expect(detail.endsWith("…")).toBe(true);
+  });
+
+  it("drops a blank error output rather than carrying it around", () => {
+    let session = spawn();
+    session = applyHarnessEvent(session, {
+      type: "agent.step",
+      callId: "agent-1",
+      stepId: "t1",
+      kind: "tool",
+      text: "npm test",
+      status: "failed",
+      detail: "   ",
+    });
+
+    expect(session.blocks[0].agentRun?.steps[0]).not.toHaveProperty("detail");
   });
 
   it("keeps the parent tool block's own identity", () => {

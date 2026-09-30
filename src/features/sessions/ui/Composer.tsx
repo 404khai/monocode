@@ -40,7 +40,11 @@ import {
   revokeAttachment,
 } from "../model/attachments";
 import { resizeComposer } from "../model/composerResize";
-import { messageFilesFromClipboard } from "../../../platform/tauri/clipboard";
+import {
+  isFileReferenceText,
+  messageFilesFromClipboard,
+  nativeClipboardAttachments,
+} from "../../../platform/tauri/clipboard";
 import {
   EXPLORER_FILE_POINTER_DRAG_EVENT,
   type ExplorerFilePointerDragDetail,
@@ -89,6 +93,11 @@ import type {
 } from "../model/userQuestion";
 import { isImeComposition } from "../../../shared/lib/keyboard";
 import {
+  captureDraft,
+  dropPastedText,
+  insertRestoredText,
+} from "../../../shared/lib/draftRestore";
+import {
   createBlankSkill,
   rankSkills,
   hasNativeCommands,
@@ -117,7 +126,7 @@ import { McpServerPicker } from "./McpServerPicker";
 import { HarnessIcon } from "./HarnessIcon";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { InboxMiniCard } from "../../inbox/ui/InboxMiniCard";
-import { NoteMiniCard } from "../../notes/ui";
+import { NoteMiniCard } from "../../notes/ui/NoteMiniCard";
 import { HandoffMiniCard } from "./HandoffMiniCard";
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
 import { QuestionForm } from "./QuestionForm";
@@ -208,6 +217,9 @@ type Props = {
   hideProjectPicker?: boolean;
   hideBranchPicker?: boolean;
   hideTopBar?: boolean;
+  /** Keeps local file mentions, skills, and app modes off for host sessions. */
+  remoteSession?: boolean;
+  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean };
   context?: ContextUsage;
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
@@ -497,6 +509,8 @@ export function Composer({
   hideProjectPicker = false,
   hideBranchPicker = false,
   hideTopBar = false,
+  remoteSession = false,
+  remoteFeatures,
   context,
   compactSupported = false,
   quoteRequest,
@@ -565,6 +579,11 @@ export function Composer({
   const consumedQuoteId = useRef<number | null>(null);
   const draftRevisionRef = useRef(0);
   const draftResetTokenRef = useRef(draftResetToken);
+  /** Bumped when the draft is cleared, so a late paste cannot land on the next one. */
+  const pasteGenerationRef = useRef(0);
+  /** Native and file pastes still reading when Send is pressed. */
+  const pasteFlightRef = useRef<Promise<void> | null>(null);
+  const submitLockRef = useRef(false);
   const positionedInitialDraft = useRef(false);
   const slashRef = useRef<SlashToken | null>(null);
   const mentionRef = useRef<MentionToken | null>(null);
@@ -601,6 +620,7 @@ export function Composer({
       !!handoffCard,
   );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [pasteError, setPasteError] = useState<string | null>(null);
   const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
@@ -622,8 +642,11 @@ export function Composer({
   const mcpInsertAt = useRef<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
+  const remote = remoteSession;
+  // Local indexes (files, skills) must never read a remote session's path.
+  const localCwd = remote ? "" : executionCwd;
   const [files, setFiles] = useState<ProjectFile[]>(
-    () => peekProjectFiles(executionCwd) ?? [],
+    () => peekProjectFiles(localCwd) ?? [],
   );
   const notesEnabled = useSyncExternalStore(
     subscribeNotesEnabled,
@@ -653,7 +676,7 @@ export function Composer({
   attachmentsRef.current = attachments;
 
   const mentionOpen =
-    mention !== null && (looksLikeProject(cwd) || notesEnabled);
+    !remote && mention !== null && (looksLikeProject(cwd) || notesEnabled);
   const navigationEmpty =
     draft.length === 0 &&
     attachments.length === 0 &&
@@ -664,37 +687,44 @@ export function Composer({
   const pickerOpen = skillPickerOpen || sessionFolderOpen || mcpPickerOpen;
   const skillCatalog = useComposerSkills({
     harness,
-    executionCwd,
+    executionCwd: localCwd,
     sessionId,
-    pickerOpen,
+    pickerOpen: pickerOpen && !remote,
   });
   const skills = skillCatalog.skills;
   const slashItems = useMemo(
-    () => [
-      SESSION_FOLDER_COMMAND,
-      MCP_COMMAND,
-      OPERATOR_COMMAND,
-      PLAN_COMMAND,
-      COMPACT_COMMAND,
-      ...(supportsBtwHarness(harness) ? [BTW_COMMAND] : []),
-      ...skills.filter(
-        (skill) =>
-          ![OPERATOR_COMMAND.name, "mono", "monocode"].includes(skill.name) &&
-          (skill.kind === "native" ||
-            (skill.name !== PLAN_COMMAND.name &&
-              skill.name !== COMPACT_COMMAND.name &&
-              skill.name !== SESSION_FOLDER_COMMAND.name &&
-              skill.name !== MCP_COMMAND.name &&
-              skill.name !== BTW_COMMAND.name)),
-      ),
-    ],
-    [harness, skills],
+    () =>
+      remote
+        ? [...(remoteFeatures?.plan ? [PLAN_COMMAND] : []), COMPACT_COMMAND]
+        : [
+            SESSION_FOLDER_COMMAND,
+            MCP_COMMAND,
+            OPERATOR_COMMAND,
+            PLAN_COMMAND,
+            COMPACT_COMMAND,
+            ...(supportsBtwHarness(harness) ? [BTW_COMMAND] : []),
+            ...skills.filter(
+              (skill) =>
+                ![OPERATOR_COMMAND.name, "mono", "monocode"].includes(
+                  skill.name,
+                ) &&
+                (skill.kind === "native" ||
+                  (skill.name !== PLAN_COMMAND.name &&
+                    skill.name !== COMPACT_COMMAND.name &&
+                    skill.name !== SESSION_FOLDER_COMMAND.name &&
+                    skill.name !== MCP_COMMAND.name &&
+                    skill.name !== BTW_COMMAND.name)),
+            ),
+          ],
+    [harness, skills, remote, remoteFeatures?.plan],
   );
   const skillLimit = hasNativeCommands(harness)
     ? Number.POSITIVE_INFINITY
     : undefined;
   const rankedSkills = rankSkills(slashItems, slash?.query ?? "", skillLimit);
-  const attachmentsSupported = harnessSupportsAttachments(harness);
+  const attachmentsSupported =
+    (!remote || !!remoteFeatures?.attachments) &&
+    harnessSupportsAttachments(harness);
   const skillNames = useMemo(
     () => new Set(slashItems.map((skill) => skill.invocation)),
     [slashItems],
@@ -823,6 +853,7 @@ export function Composer({
       const next = mergeAttachments(attachmentsRef.current, incoming);
       attachmentsRef.current = next;
       setAttachments(next);
+      setPasteError(null);
       draftRevisionRef.current += 1;
       syncHasValue(ref.current?.value ?? "", next);
       ref.current?.focus();
@@ -841,6 +872,7 @@ export function Composer({
       attachmentsRef.current = next;
       draftRevisionRef.current += 1;
       setAttachments(next);
+      setPasteError(null);
       syncHasValue(ref.current?.value ?? "", next);
       ref.current?.focus();
     },
@@ -910,20 +942,21 @@ export function Composer({
     const apply = (next: ProjectFile[]) => {
       if (!cancelled) setFiles(next);
     };
-    const cached = peekProjectFiles(executionCwd);
+    const cached = peekProjectFiles(localCwd);
     apply(cached ?? []);
-    void loadProjectFiles(executionCwd, mentionOpen)
+    if (!localCwd) return;
+    void loadProjectFiles(localCwd, mentionOpen)
       .then(apply)
       .catch(() => undefined);
     const unsub = subscribeProjectFiles(() => {
-      const next = peekProjectFiles(executionCwd);
+      const next = peekProjectFiles(localCwd);
       if (next) apply(next);
     });
     return () => {
       cancelled = true;
       unsub();
     };
-  }, [executionCwd, mentionOpen]);
+  }, [localCwd, mentionOpen]);
 
   useEffect(() => {
     if (!mentionOpen || !notesEnabled) return;
@@ -983,6 +1016,7 @@ export function Composer({
       return;
     }
     draftResetTokenRef.current = draftResetToken;
+    pasteGenerationRef.current += 1;
     draftRevisionRef.current += 1;
     if (ref.current) {
       ref.current.value = "";
@@ -1293,6 +1327,7 @@ export function Composer({
     };
 
     const onExplorerFilePointerDrag = (event: Event) => {
+      if (remote) return;
       const detail = (event as CustomEvent<ExplorerFilePointerDragDetail>)
         .detail;
       if (!detail || detail.type === "end") {
@@ -1355,7 +1390,7 @@ export function Composer({
       );
       unlisten?.();
     };
-  }, [addAttachments, attachmentsSupported, enabled]);
+  }, [addAttachments, attachmentsSupported, enabled, remote]);
   const restoreDraft = useCallback(
     (
       text: string,
@@ -1395,6 +1430,7 @@ export function Composer({
 
   const exitEditMode = useCallback(() => {
     draftRevisionRef.current += 1;
+    pasteGenerationRef.current += 1;
     if (ref.current) {
       ref.current.value = "";
       ref.current.style.height = "auto";
@@ -1459,7 +1495,35 @@ export function Composer({
     onRecallLastTurnReady(recallLastTurn);
   }, [editLastTurnSupported, onRecallLastTurnReady, recallLastTurn]);
 
+  const rememberPaste = (work: Promise<void>) => {
+    const flight = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    const previous = pasteFlightRef.current;
+    const joined = previous ? previous.then(() => flight) : flight;
+    pasteFlightRef.current = joined;
+    void joined.finally(() => {
+      if (pasteFlightRef.current === joined) pasteFlightRef.current = null;
+    });
+  };
   const submit = (value: string) => {
+    if (disabled || worktreeRemoved || submitLockRef.current) return;
+    submitLockRef.current = true;
+    void completeSubmit(value).finally(() => {
+      submitLockRef.current = false;
+    });
+  };
+  const completeSubmit = async (submittedValue: string) => {
+    let pending = pasteFlightRef.current;
+    const generation = pasteGenerationRef.current;
+    while (pending) {
+      await pending;
+      // A reset or an earlier send retired this draft while the read was out.
+      if (pasteGenerationRef.current !== generation) return;
+      pending = pasteFlightRef.current;
+    }
+    const value = ref.current?.value ?? submittedValue;
     if (disabled || worktreeRemoved) return;
     if (isMcpCommand(value)) {
       mcpInsertAt.current = 0;
@@ -1475,13 +1539,14 @@ export function Composer({
       return;
     }
     if (draftSelected && onSaveDraft) {
-      const files = attachments;
+      const files = attachmentsRef.current;
       if (!value.trim() && files.length === 0) return;
       const accepted = onSaveDraft(
         mcpContextText(taggedMcpServers(value, selectedMcp), value),
         files,
       );
       if (accepted === false || !ref.current) return;
+      pasteGenerationRef.current += 1;
       ref.current.value = "";
       ref.current.style.height = "auto";
       setDraft("");
@@ -1502,13 +1567,14 @@ export function Composer({
     if (
       btwCommand.matched &&
       onBtwCommand &&
-      attachments.length === 0 &&
+      attachmentsRef.current.length === 0 &&
       !inboxCard &&
       !noteCard &&
       !handoffCard
     ) {
       const accepted = onBtwCommand(btwCommand.text);
       if (accepted === false) return;
+      pasteGenerationRef.current += 1;
       if (ref.current) {
         ref.current.value = "";
         ref.current.style.height = "auto";
@@ -1531,6 +1597,7 @@ export function Composer({
     if (isCompactCommand(value)) {
       if (!onCompactContext?.()) return;
       if (!ref.current) return;
+      pasteGenerationRef.current += 1;
       ref.current.value = "";
       ref.current.style.height = "auto";
       setDraft("");
@@ -1540,7 +1607,7 @@ export function Composer({
       setMention(null);
       setCreatingSkill(false);
       setCreateError(null);
-      syncHasValue("", attachments);
+      syncHasValue("", attachmentsRef.current);
       return;
     }
 
@@ -1556,7 +1623,7 @@ export function Composer({
       operatorSelected && !consumeOperatorCommand(text).matched
         ? `/operator ${text}`
         : text;
-    const files = attachments;
+    const files = attachmentsRef.current;
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
     // Clear the parent draft before onSubmit. The app can synchronously remount
     // the composer when the first message leaves an empty session (EmptySession →
@@ -1602,6 +1669,7 @@ export function Composer({
       restoreDraft(text, files);
       return;
     }
+    pasteGenerationRef.current += 1;
     if (ref.current) {
       ref.current.value = "";
       ref.current.style.height = "auto";
@@ -1624,6 +1692,7 @@ export function Composer({
     setMention(null);
     setCreatingSkill(false);
     setCreateError(null);
+    setPasteError(null);
     syncHasValue("", []);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1789,26 +1858,80 @@ export function Composer({
   };
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    setPasteError(null);
     const messageFiles = messageFilesFromClipboard(e.clipboardData);
     if (messageFiles) {
       e.preventDefault();
-      const el = e.currentTarget;
-      el.setRangeText(
-        e.clipboardData.getData("text/plain"),
-        el.selectionStart,
-        el.selectionEnd,
-        "end",
+      const generation = pasteGenerationRef.current;
+      const captured = captureDraft(e.currentTarget);
+      const text = e.clipboardData.getData("text/plain");
+      if (captured) insertRestoredText(captured, text);
+      if (!attachmentsSupported) return;
+      rememberPaste(
+        attachmentsFromFiles(messageFiles).then((pasted) => {
+          if (pasteGenerationRef.current !== generation) {
+            pasted.forEach(revokeAttachment);
+            return;
+          }
+          addAttachments(pasted);
+        }),
       );
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      if (attachmentsSupported)
-        void attachmentsFromFiles(messageFiles).then(addAttachments);
       return;
     }
     const files = filesFromClipboard(e.clipboardData);
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      // A webview reports a paste as text only, so a screenshot or a file
+      // copied in a file manager arrives with nothing to attach; both live on
+      // the native clipboard.
+      if (!attachmentsSupported) return;
+      const text = e.clipboardData.getData("text/plain");
+      // Prose and whitespace alike are the webview's to insert.
+      if (text && !isFileReferenceText(text)) return;
+      // A file URI becomes a chip, so it is kept out of the draft; with no text
+      // at all the paste carried an image the webview cannot see.
+      e.preventDefault();
+      // Captured before the read crosses an IPC hop. Send and draft reset bump
+      // the generation, so a finished read cannot attach onto a draft that is gone.
+      const generation = pasteGenerationRef.current;
+      const captured = isFileReferenceText(text)
+        ? captureDraft(e.currentTarget)
+        : null;
+      rememberPaste(
+        nativeClipboardAttachments(text)
+          .then(({ files: pasted, warning }) => {
+            if (pasteGenerationRef.current !== generation) {
+              pasted.forEach(revokeAttachment);
+              return;
+            }
+            if (pasted.length) {
+              // WebKit can insert the URI after preventDefault. The chip
+              // replaces it, so the draft must not keep that text.
+              if (captured) dropPastedText(captured, text);
+              addAttachments(pasted);
+            } else if (captured) insertRestoredText(captured, text);
+            if (warning) setPasteError(warning);
+          })
+          .catch((reason: unknown) => {
+            if (pasteGenerationRef.current !== generation) return;
+            setPasteError(
+              reason instanceof Error ? reason.message : String(reason),
+            );
+          }),
+      );
+      return;
+    }
     e.preventDefault();
     if (!attachmentsSupported) return;
-    void attachmentsFromFiles(files).then(addAttachments);
+    const generation = pasteGenerationRef.current;
+    rememberPaste(
+      attachmentsFromFiles(files).then((pasted) => {
+        if (pasteGenerationRef.current !== generation) {
+          pasted.forEach(revokeAttachment);
+          return;
+        }
+        addAttachments(pasted);
+      }),
+    );
   };
 
   const attachFromPicker = () => {
@@ -2035,7 +2158,7 @@ export function Composer({
           ) : null}
           {hideTopBar ? null : (
             <div className="flex min-w-0 items-center gap-2.5 overflow-hidden px-3 pt-2.5">
-              {hideProjectPicker ? null : (
+              {!remote && !hideProjectPicker ? (
                 <CwdPicker
                   cwd={cwd}
                   recents={recents}
@@ -2045,7 +2168,7 @@ export function Composer({
                   onNewTerminal={worktreeRemoved ? undefined : onNewTerminal}
                   onClose={() => ref.current?.focus()}
                 />
-              )}
+              ) : null}
               {hideBranchPicker ? null : draftWorkspace &&
                 onWorkspaceModeChange &&
                 onWorktreeBaseChange ? (
@@ -2124,6 +2247,12 @@ export function Composer({
             </div>
           ) : null}
 
+          {pasteError ? (
+            <p role="alert" className="px-3 pt-2 text-xs text-red-400">
+              {pasteError}
+            </p>
+          ) : null}
+
           {inboxCard ? (
             <InboxMiniCard card={inboxCard} onDismiss={onInboxCardDismiss} />
           ) : null}
@@ -2200,6 +2329,7 @@ export function Composer({
                     ? current
                     : retained;
                 });
+                setPasteError(null);
                 if (
                   sessionFolderSelected &&
                   !consumeSessionFolderCommand(el.value).matched
@@ -2253,61 +2383,67 @@ export function Composer({
                       <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
                         {attachmentsSupported
                           ? "Attach files or images"
-                          : `${HARNESS_TITLE[harness]} does not support attachments`}
+                          : remote && !remoteFeatures?.attachments
+                            ? "Update this machine’s host to attach files"
+                            : `${HARNESS_TITLE[harness]} does not support attachments`}
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    aria-pressed={planSelected}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setPlanSelected((selected) => !selected);
-                      setOperatorSelected(false);
-                      setOrchestrationSelected(false);
-                      setDraftSelected(false);
-                      setPlusOpen(false);
-                      ref.current?.focus();
-                    }}
-                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
-                  >
-                    <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px]">Plan mode</span>
-                      <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
-                        Review a plan before building
+                  {!remote || remoteFeatures?.plan ? (
+                    <button
+                      type="button"
+                      aria-pressed={planSelected}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setPlanSelected((selected) => !selected);
+                        setOperatorSelected(false);
+                        setOrchestrationSelected(false);
+                        setDraftSelected(false);
+                        setPlusOpen(false);
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px]">Plan mode</span>
+                        <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
+                          Review a plan before building
+                        </span>
                       </span>
-                    </span>
-                    {planSelected ? (
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
-                    ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={operatorSelected}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setOperatorSelected((selected) => !selected);
-                      setPlanSelected(false);
-                      setOrchestrationSelected(false);
-                      setDraftSelected(false);
-                      setPlusOpen(false);
-                      ref.current?.focus();
-                    }}
-                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
-                  >
-                    <CursorMagicSelection className="mt-0.5 size-4 shrink-0 text-sky-300/80" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px]">Operator</span>
-                      <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
-                        Give this thread access to MonoCode
+                      {planSelected ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                  ) : null}
+                  {!remote ? (
+                    <button
+                      type="button"
+                      aria-pressed={operatorSelected}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setOperatorSelected((selected) => !selected);
+                        setPlanSelected(false);
+                        setOrchestrationSelected(false);
+                        setDraftSelected(false);
+                        setPlusOpen(false);
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <CursorMagicSelection className="mt-0.5 size-4 shrink-0 text-sky-300/80" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px]">Operator</span>
+                        <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
+                          Give this thread access to MonoCode
+                        </span>
                       </span>
-                    </span>
-                    {operatorSelected ? (
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-sky-300/80" />
-                    ) : null}
-                  </button>
-                  {!hideTopBar && (
+                      {operatorSelected ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-sky-300/80" />
+                      ) : null}
+                    </button>
+                  ) : null}
+                  {!remote && !hideTopBar && (
                     <button
                       type="button"
                       aria-pressed={orchestrationSelected}
@@ -2514,7 +2650,7 @@ export function Composer({
             </div>
           </div>
         </div>
-        {runnerLive && runnerEnabled ? (
+        {runnerLive && runnerEnabled && !remote ? (
           <ComposerRunner
             boxRef={boxRef}
             cwd={cwd}

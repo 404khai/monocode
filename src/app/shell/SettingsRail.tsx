@@ -5,6 +5,7 @@ import {
   Inbox,
   FolderTree,
   Globe,
+  Internet,
   Keyboard,
   MessageSquare,
   Palette,
@@ -20,6 +21,7 @@ import {
 
 const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   general: SlidersHorizontal,
+  connections: Internet,
   appearance: Palette,
   keybindings: Keyboard,
   chat: MessageSquare,
