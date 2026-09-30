@@ -103,8 +103,8 @@ describe("file editor line endings", () => {
 
   it("automatically saves after typing stops", async () => {
     disk.content = "alpha\n";
-    const view = await renderEditor("/repo/notes.txt");
     vi.useFakeTimers();
+    const view = await renderEditor("/repo/notes.txt");
 
     await act(async () => {
       view.dispatch({ changes: { from: 0, insert: "first " } });
@@ -120,15 +120,17 @@ describe("file editor line endings", () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
+      await vi.waitFor(() =>
+        expect(written.content).toBe("second first alpha\n"),
+      );
     });
-    expect(written.content).toBe("second first alpha\n");
   });
 
   it("keeps changes dirty when autosave is disabled", async () => {
     disk.content = "alpha\n";
     saveAutosave(false);
-    const view = await renderEditor("/repo/notes.txt");
     vi.useFakeTimers();
+    const view = await renderEditor("/repo/notes.txt");
 
     await act(async () => {
       view.dispatch({ changes: { from: 0, insert: "changed " } });
@@ -141,8 +143,8 @@ describe("file editor line endings", () => {
   it("does not autosave over an external file change", async () => {
     disk.content = "alpha\n";
     const path = "/repo/notes.txt";
-    const view = await renderEditor(path);
     vi.useFakeTimers();
+    const view = await renderEditor(path);
 
     await act(async () => {
       view.dispatch({ changes: { from: 0, insert: "local " } });
@@ -168,14 +170,14 @@ describe("file editor line endings", () => {
           finishFormatting = resolve;
         }),
     );
-    const view = await renderEditor(path);
     vi.useFakeTimers();
+    const view = await renderEditor(path);
 
     await act(async () => {
       view.dispatch({ changes: { from: 0, insert: "local " } });
       await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS);
+      await vi.waitFor(() => expect(formatText).toHaveBeenCalledOnce());
     });
-    expect(formatText).toHaveBeenCalledOnce();
 
     await act(async () => {
       disk.content = "external\n";
@@ -197,8 +199,8 @@ describe("file editor line endings", () => {
       }
       return defaultInvoke(command, args);
     });
-    const view = await renderEditor("/repo/notes.txt");
     vi.useFakeTimers();
+    const view = await renderEditor("/repo/notes.txt");
 
     await act(async () => {
       view.dispatch({ changes: { from: 0, insert: "changed " } });
@@ -209,10 +211,20 @@ describe("file editor line endings", () => {
     });
     expect(writeAttempts).toBe(1);
 
+    // The failed write passes through the save queue before its catch handler
+    // restores the autosave timer. Wait for that failure to settle first.
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Save failed: disk unavailable",
+        ),
+      );
+    });
+
     await act(async () => {
       await vi.advanceTimersByTimeAsync(FILE_EDITOR_AUTOSAVE_DELAY_MS);
+      await vi.waitFor(() => expect(writeAttempts).toBe(2));
     });
-    expect(writeAttempts).toBe(2);
     expect(written.content).toBe("changed alpha\n");
   });
 
