@@ -116,7 +116,21 @@ pub async fn mcp_add(
                 }
                 write_json_server(&path, &name, server)
             }
-            "claude" | "codex" | "opencode" => {
+            "opencode" => {
+                if !matches!(scope.as_str(), "user" | "project") {
+                    return Err("Invalid OpenCode MCP scope".into());
+                }
+                let major = crate::harness::opencode_major_version(&cwd)?;
+                let override_path = std::env::var_os("OPENCODE_CONFIG").map(PathBuf::from);
+                let path = opencode_config_path(
+                    Path::new(&home),
+                    &project,
+                    &scope,
+                    override_path.as_deref(),
+                );
+                write_opencode_server(&path, &name, server, major)
+            }
+            "claude" | "codex" => {
                 crate::harness::add_mcp_via_cli(&provider, &scope, &cwd, &name, &server)
             }
             _ => Err("Unsupported MCP provider".into()),
@@ -126,7 +140,213 @@ pub async fn mcp_add(
     .map_err(|e| e.to_string())?
 }
 
+fn opencode_config_path(
+    home: &Path,
+    project: &Path,
+    scope: &str,
+    override_path: Option<&Path>,
+) -> PathBuf {
+    if scope == "user" {
+        if let Some(path) = override_path {
+            return path.to_path_buf();
+        }
+    }
+    let directory = if scope == "user" {
+        home.join(".config/opencode")
+    } else {
+        project.to_path_buf()
+    };
+    let candidates: &[&str] = if scope == "user" {
+        &["opencode.json", "opencode.jsonc"]
+    } else {
+        &[
+            "opencode.json",
+            "opencode.jsonc",
+            ".opencode/opencode.json",
+            ".opencode/opencode.jsonc",
+        ]
+    };
+    candidates
+        .iter()
+        .map(|name| directory.join(name))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| directory.join("opencode.json"))
+}
+
+fn normalize_opencode_server(server: Value, major: u32) -> Result<Value, String> {
+    let mut object = server
+        .as_object()
+        .ok_or("Server configuration must be an object")?
+        .clone();
+    let local = object.get("command").is_some();
+    let allowed: &[&str] = if local {
+        &[
+            "type",
+            "command",
+            "args",
+            "env",
+            "environment",
+            "enabled",
+            "disabled",
+            "cwd",
+            "timeout",
+            "codemode",
+            "protocol",
+        ]
+    } else {
+        &[
+            "type", "url", "headers", "enabled", "disabled", "oauth", "timeout", "codemode",
+            "protocol",
+        ]
+    };
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("OpenCode configuration cannot preserve '{key}'"));
+    }
+    let kind = object
+        .remove("type")
+        .and_then(|value| value.as_str().map(str::to_owned));
+    if local {
+        if !matches!(kind.as_deref(), None | Some("stdio") | Some("local")) {
+            return Err("OpenCode local server type must be local".into());
+        }
+        let command = object
+            .remove("command")
+            .ok_or("Local server needs a command")?;
+        let mut parts = if let Some(command) = command.as_str() {
+            vec![Value::String(command.to_owned())]
+        } else {
+            command
+                .as_array()
+                .cloned()
+                .ok_or("OpenCode command must be an array or string")?
+        };
+        if let Some(args) = object.remove("args") {
+            parts.extend(
+                args.as_array()
+                    .ok_or("args must be an array")?
+                    .iter()
+                    .cloned(),
+            );
+        }
+        if parts.is_empty()
+            || parts
+                .iter()
+                .any(|part| part.as_str().is_none_or(str::is_empty))
+        {
+            return Err("OpenCode command must contain non-empty strings".into());
+        }
+        if object.contains_key("env") && object.contains_key("environment") {
+            return Err("Use either env or environment".into());
+        }
+        if let Some(environment) = object
+            .remove("env")
+            .or_else(|| object.remove("environment"))
+        {
+            let values = environment
+                .as_object()
+                .ok_or("environment must be an object")?;
+            if values.values().any(|value| !value.is_string()) {
+                return Err("environment values must be strings".into());
+            }
+            object.insert("environment".into(), environment);
+        }
+        object.insert("command".into(), Value::Array(parts));
+        object.insert("type".into(), Value::String("local".into()));
+    } else {
+        if !matches!(
+            kind.as_deref(),
+            None | Some("http") | Some("sse") | Some("remote")
+        ) {
+            return Err("OpenCode remote server type must be remote".into());
+        }
+        let url = object
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or("Remote server needs a URL")?;
+        let parsed = url::Url::parse(url).map_err(|_| "Invalid server URL")?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err("MCP URL must use HTTP or HTTPS".into());
+        }
+        object.insert("type".into(), Value::String("remote".into()));
+    }
+    if major == 1 {
+        if let Some(disabled) = object.remove("disabled") {
+            object.insert(
+                "enabled".into(),
+                Value::Bool(!disabled.as_bool().ok_or("disabled must be a boolean")?),
+            );
+        }
+    } else if let Some(enabled) = object.remove("enabled") {
+        object.insert(
+            "disabled".into(),
+            Value::Bool(!enabled.as_bool().ok_or("enabled must be a boolean")?),
+        );
+    }
+    Ok(Value::Object(object))
+}
+
+fn write_opencode_server(path: &Path, name: &str, server: Value, major: u32) -> Result<(), String> {
+    let server = normalize_opencode_server(server, major)?;
+    write_json_config(path, |root| {
+        let object = root
+            .as_object_mut()
+            .ok_or("Existing config must be a JSON object")?;
+        let mcp = object.entry("mcp").or_insert_with(|| serde_json::json!({}));
+        let mcp = mcp
+            .as_object_mut()
+            .ok_or("Existing mcp must be an object")?;
+        let servers = if major == 1 {
+            if mcp
+                .get("servers")
+                .and_then(Value::as_object)
+                .is_some_and(|nested| nested.values().all(Value::is_object))
+            {
+                return Err("Existing OpenCode config uses the 2.x MCP layout".into());
+            }
+            mcp
+        } else {
+            if mcp
+                .iter()
+                .any(|(key, value)| key != "servers" && value.is_object())
+            {
+                return Err("Existing OpenCode config uses the 1.x MCP layout".into());
+            }
+            mcp.entry("servers")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or("Existing mcp.servers must be an object")?
+        };
+        if servers.contains_key(name) {
+            return Err(format!("{name} is already configured in this file"));
+        }
+        servers.insert(name.to_owned(), server);
+        Ok(())
+    })
+}
+
 fn write_json_server(path: &Path, name: &str, server: Value) -> Result<(), String> {
+    write_json_config(path, |root| {
+        let object = root
+            .as_object_mut()
+            .ok_or("Existing config must be a JSON object")?;
+        let servers = object
+            .entry("mcpServers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers = servers
+            .as_object_mut()
+            .ok_or("Existing mcpServers must be an object")?;
+        if servers.contains_key(name) {
+            return Err(format!("{name} is already configured in this file"));
+        }
+        servers.insert(name.to_owned(), server);
+        Ok(())
+    })
+}
+
+fn write_json_config(
+    path: &Path,
+    update: impl FnOnce(&mut Value) -> Result<(), String>,
+) -> Result<(), String> {
     let parent = path.parent().ok_or("Invalid config path")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let lock_path = parent.join(format!(
@@ -151,19 +371,7 @@ fn write_json_server(path: &Path, name: &str, server: Value) -> Result<(), Strin
     } else {
         serde_json::json!({})
     };
-    let object = root
-        .as_object_mut()
-        .ok_or("Existing config must be a JSON object")?;
-    let servers = object
-        .entry("mcpServers")
-        .or_insert_with(|| serde_json::json!({}));
-    let servers = servers
-        .as_object_mut()
-        .ok_or("Existing mcpServers must be an object")?;
-    if servers.contains_key(name) {
-        return Err(format!("{name} is already configured in this file"));
-    }
-    servers.insert(name.to_owned(), server);
+    update(&mut root)?;
     let encoded = serde_json::to_vec_pretty(&root).map_err(|e| e.to_string())?;
     let temporary = parent.join(format!(
         ".{}.{}.tmp",
@@ -538,6 +746,89 @@ mod tests {
         assert_eq!(server["args"], serde_json::json!(["-y", "server"]));
         assert!(server_from_json("claude", "docs server", r#"{"command":"npx"}"#).is_err());
         assert!(server_from_json("opencode", "docs", r#"{"command":[]}"#).is_err());
+    }
+
+    #[test]
+    fn writes_opencode_one_config_with_environment() {
+        let root =
+            std::env::temp_dir().join(format!("monocode-opencode-one-{}", uuid::Uuid::new_v4()));
+        let path = root.join("opencode.jsonc");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&path, "{\n // keep this setting\n \"theme\": \"dark\", \"mcp\": {\"existing\": {\"type\": \"remote\", \"url\": \"https://example.com\"},},\n}").unwrap();
+        let (_, server) = server_from_json(
+            "opencode",
+            "docs",
+            r#"{"type":"local","command":["npx","-y","docs"],"environment":{"TOKEN":"{env:DOCS_TOKEN}"},"enabled":true}"#,
+        ).unwrap();
+        write_opencode_server(&path, "docs", server, 1).unwrap();
+        let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(config["theme"], "dark");
+        assert_eq!(config["mcp"]["existing"]["url"], "https://example.com");
+        assert_eq!(
+            config["mcp"]["docs"]["command"],
+            serde_json::json!(["npx", "-y", "docs"])
+        );
+        assert_eq!(
+            config["mcp"]["docs"]["environment"]["TOKEN"],
+            "{env:DOCS_TOKEN}"
+        );
+        assert_eq!(config["mcp"]["docs"]["enabled"], true);
+        assert!(
+            write_opencode_server(&path, "docs", serde_json::json!({"command":"npx"}), 1).is_err()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn writes_opencode_two_config_and_normalizes_standard_env() {
+        let root =
+            std::env::temp_dir().join(format!("monocode-opencode-two-{}", uuid::Uuid::new_v4()));
+        let path = root.join("opencode.json");
+        let (_, server) = server_from_json(
+            "opencode",
+            "docs",
+            r#"{"mcpServers":{"docs":{"command":"npx","args":["docs"],"env":{"TOKEN":"{env:DOCS_TOKEN}"},"enabled":false}}}"#,
+        ).unwrap();
+        write_opencode_server(&path, "docs", server, 2).unwrap();
+        let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            config["mcp"]["servers"]["docs"]["command"],
+            serde_json::json!(["npx", "docs"])
+        );
+        assert_eq!(
+            config["mcp"]["servers"]["docs"]["environment"]["TOKEN"],
+            "{env:DOCS_TOKEN}"
+        );
+        assert_eq!(config["mcp"]["servers"]["docs"]["disabled"], true);
+        assert!(config["mcp"]["docs"].is_null());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn chooses_existing_opencode_jsonc_and_custom_user_config() {
+        let root =
+            std::env::temp_dir().join(format!("monocode-opencode-path-{}", uuid::Uuid::new_v4()));
+        let home = root.join("home");
+        let project = root.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("opencode.jsonc"), "{}").unwrap();
+        assert_eq!(
+            opencode_config_path(&home, &project, "project", None),
+            project.join("opencode.jsonc")
+        );
+        std::fs::remove_file(project.join("opencode.jsonc")).unwrap();
+        std::fs::create_dir_all(project.join(".opencode")).unwrap();
+        std::fs::write(project.join(".opencode/opencode.jsonc"), "{}").unwrap();
+        assert_eq!(
+            opencode_config_path(&home, &project, "project", None),
+            project.join(".opencode/opencode.jsonc")
+        );
+        let custom = root.join("custom.jsonc");
+        assert_eq!(
+            opencode_config_path(&home, &project, "user", Some(&custom)),
+            custom
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

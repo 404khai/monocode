@@ -517,6 +517,27 @@ pub(crate) fn add_mcp_via_cli(
     Ok(())
 }
 
+pub(crate) fn opencode_major_version(cwd: &str) -> Result<u32, String> {
+    let binary = resolve_opencode().ok_or("OpenCode CLI not found")?;
+    let version = mcp_command(
+        binary,
+        vec!["--version".into()],
+        cwd.to_owned(),
+        Duration::from_secs(10),
+    )?;
+    version
+        .split_whitespace()
+        .find_map(|part| {
+            part.trim_start_matches('v')
+                .split('.')
+                .next()?
+                .parse::<u32>()
+                .ok()
+        })
+        .filter(|major| matches!(major, 1 | 2))
+        .ok_or_else(|| format!("Unsupported OpenCode version: {version}"))
+}
+
 fn mcp_add_args(
     provider: &str,
     scope: &str,
@@ -544,12 +565,8 @@ fn mcp_add_args(
     if provider == "codex" && scope != "user" {
         return Err("Codex CLI adds user-scoped servers only".into());
     }
-    if provider == "opencode" && !matches!(scope, "user" | "project") {
-        return Err("Invalid OpenCode MCP scope".into());
-    }
     let binary = match provider {
         "codex" => resolve_codex().ok_or("Codex CLI not found")?,
-        "opencode" => resolve_opencode().ok_or("OpenCode CLI not found")?,
         _ => return Err("Unsupported MCP provider".into()),
     };
     let object = config
@@ -557,11 +574,7 @@ fn mcp_add_args(
         .ok_or("Server configuration must be an object")?;
     let remote = object.get("url").and_then(serde_json::Value::as_str);
     let allowed: &[&str] = if remote.is_some() {
-        if provider == "codex" {
-            &["type", "url", "bearerTokenEnvVar"]
-        } else {
-            &["type", "url", "headers"]
-        }
+        &["type", "url", "bearerTokenEnvVar"]
     } else {
         &["type", "command", "args", "env"]
     };
@@ -578,24 +591,17 @@ fn mcp_add_args(
         return Err("Local server type must be stdio".into());
     }
     let mut args = vec!["mcp".into(), "add".into(), name.into()];
-    if provider == "opencode" && scope == "user" {
-        args.push("--global".into());
-    }
     if let Some(url) = remote {
         let parsed = url::Url::parse(url).map_err(|_| "Invalid server URL")?;
         if !matches!(parsed.scheme(), "http" | "https") {
             return Err("MCP URL must use HTTP or HTTPS".into());
         }
         args.extend(["--url".into(), url.into()]);
-        if provider == "codex" {
-            if let Some(var) = object
-                .get("bearerTokenEnvVar")
-                .and_then(serde_json::Value::as_str)
-            {
-                args.extend(["--bearer-token-env-var".into(), var.into()]);
-            }
-        } else {
-            args.extend(mcp_key_values(config, "headers", "--header")?);
+        if let Some(var) = object
+            .get("bearerTokenEnvVar")
+            .and_then(serde_json::Value::as_str)
+        {
+            args.extend(["--bearer-token-env-var".into(), var.into()]);
         }
     } else {
         args.extend(mcp_key_values(config, "env", "--env")?);

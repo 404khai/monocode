@@ -123,7 +123,6 @@ import type { Worktree } from "../../source-control/model/worktrees";
 import { CwdPicker } from "../../projects/ui/CwdPicker";
 import { FileMentionPicker } from "./FileMentionPicker";
 import { McpServerPicker } from "./McpServerPicker";
-import { HarnessIcon } from "./HarnessIcon";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { InboxMiniCard } from "../../inbox/ui/InboxMiniCard";
 import { NoteMiniCard } from "../../notes/ui/NoteMiniCard";
@@ -188,6 +187,7 @@ import {
   taggedMcpServers,
   type McpTag,
 } from "../model/mcpPicker";
+import { getComposerMcpTags, setComposerMcpTags } from "../model/draftCache";
 import {
   parseClaudeMcpList,
   type McpConnection,
@@ -638,7 +638,9 @@ export function Composer({
   const [mcpStatus, setMcpStatus] = useState<Map<string, string>>(new Map());
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpError, setMcpError] = useState("");
-  const [selectedMcp, setSelectedMcp] = useState<McpTag[]>([]);
+  const [selectedMcp, setSelectedMcp] = useState<McpTag[]>(() =>
+    sessionId ? getComposerMcpTags(sessionId) : [],
+  );
   const mcpInsertAt = useRef<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
@@ -839,9 +841,12 @@ export function Composer({
   }, [executionCwd, mcpPickerOpen]);
 
   useEffect(() => {
-    setSelectedMcp([]);
     setMcpPickerOpen(false);
   }, [executionCwd, harness, sessionId]);
+
+  useEffect(() => {
+    if (sessionId) setComposerMcpTags(sessionId, selectedMcp);
+  }, [sessionId, selectedMcp]);
 
   useEffect(() => {
     syncHasValue(ref.current?.value ?? "", attachmentsRef.current);
@@ -2717,20 +2722,7 @@ function MentionRuns({
             className="text-mention"
             data-mcp-tag={part.tag.token}
           >
-            <span className="relative text-transparent">
-              {"@"}
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                <HarnessIcon
-                  harness={
-                    part.tag.server.provider === "claude_desktop"
-                      ? "claude"
-                      : part.tag.server.provider
-                  }
-                  className="size-3.5"
-                />
-              </span>
-            </span>
-            {part.text.slice(1)}
+            {part.text}
           </span>
         ) : (
           <FileMentionRuns key={index} text={part.text} mentions={mentions} />

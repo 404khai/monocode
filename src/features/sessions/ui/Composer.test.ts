@@ -36,6 +36,11 @@ vi.mock("../../source-control/hooks/useProjectBranches", () => ({
 
 import { Composer, ComposerAction } from "./Composer";
 import type { ComposerTurnOptions, Attachment } from "../model/session";
+import {
+  clearComposerDraft,
+  getComposerDraft,
+  setComposerDraft,
+} from "../model/draftCache";
 import type { UserQuestionPrompt } from "../model/userQuestion";
 
 function renderAction(
@@ -138,17 +143,24 @@ describe("Composer question focus", () => {
       options?: { draft?: boolean },
     ) => boolean | void,
     onSubmit: (text: string, attachments: Attachment[]) => void = () => {},
+    sessionId?: string,
+    harness: "claude" | "codex" = "claude",
   ) {
     await act(async () =>
       root.render(
         createElement(Composer, {
+          key: sessionId,
           focused: true,
           focusToken,
-          harness: "claude",
+          harness,
           model: "claude-sonnet",
           runtimeMode: "supervised",
           executionCwd: "/repo",
           initialDraft,
+          sessionId,
+          onDraftChange: sessionId
+            ? (text) => setComposerDraft(sessionId, text)
+            : undefined,
           hideProjectPicker: true,
           hideBranchPicker: true,
           onFocus: () => {},
@@ -467,6 +479,100 @@ describe("Composer question focus", () => {
     expect(
       container.querySelector('[data-mcp-tag="@mcp/docs"]'),
     ).not.toBeNull();
+  });
+
+  it("restores a Codex MCP tag and its context after switching sessions", async () => {
+    mcpInvoke.mockImplementation(async (command: string) =>
+      command === "mcp_discover"
+        ? [
+            {
+              provider: "codex",
+              name: "docs",
+              scope: "user",
+              configPath: "/codex/config.toml",
+              transport: "stdio",
+            },
+          ]
+        : "",
+    );
+    const onSubmit = vi.fn();
+    try {
+      await renderComposer(
+        undefined,
+        vi.fn(),
+        false,
+        0,
+        "/mcp",
+        undefined,
+        onSubmit,
+        "mcp-session-one",
+        "codex",
+      );
+      let textarea = container.querySelector("textarea")!;
+      await act(async () =>
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      const docs = container.querySelector<HTMLButtonElement>(
+        '[data-mcp-picker] [role="option"]',
+      )!;
+      await act(async () => docs.click());
+      expect(textarea.value).toContain("@mcp/docs");
+      expect(container.querySelector("[data-mcp-tag] svg")).toBeNull();
+
+      await renderComposer(
+        undefined,
+        vi.fn(),
+        false,
+        0,
+        "Other draft",
+        undefined,
+        onSubmit,
+        "mcp-session-two",
+        "codex",
+      );
+      expect(container.querySelector("[data-mcp-tag]")).toBeNull();
+
+      await renderComposer(
+        undefined,
+        vi.fn(),
+        false,
+        0,
+        getComposerDraft("mcp-session-one"),
+        undefined,
+        onSubmit,
+        "mcp-session-one",
+        "codex",
+      );
+      textarea = container.querySelector("textarea")!;
+      expect(textarea.value).toContain("@mcp/docs");
+      expect(
+        container.querySelector('[data-mcp-tag="@mcp/docs"]'),
+      ).not.toBeNull();
+      await typeInto(textarea, `${textarea.value}Use docs`);
+      await act(async () =>
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.stringContaining('"docs" (codex)'),
+        expect.any(Array),
+        expect.any(Object),
+      );
+    } finally {
+      clearComposerDraft("mcp-session-one");
+      clearComposerDraft("mcp-session-two");
+    }
   });
 
   it("keeps the draft when onBtwCommand rejects the command", async () => {
