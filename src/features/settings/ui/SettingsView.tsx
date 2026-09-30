@@ -137,8 +137,7 @@ import {
   saveUiScale,
   subscribeUiScale,
   UI_SCALE_DEFAULT,
-  UI_SCALE_MAX,
-  UI_SCALE_MIN,
+  UI_SCALE_PERCENTS,
 } from "../model/uiScale";
 import {
   getHarnessAvailabilitySnapshot,
@@ -222,9 +221,9 @@ import { removeProviderAccountCredentials } from "../../providers/model/provider
 import {
   identityKey,
   identityOrganizationTag,
-  identitySubtitle,
   useProviderAccountIdentities,
 } from "../../providers/model/providerAccountIdentity";
+import { ProviderAccountSubtitle } from "../../providers/ui/ProviderAccountSubtitle";
 import {
   accountStatus,
   accountUsageKey,
@@ -2199,14 +2198,14 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           label="Interface scale"
           description="Zoom the whole interface. You can also use Ctrl+=, Ctrl+-, and Ctrl+0 (Cmd on macOS)."
         >
-          <Slider
+          <Select
             label="Interface scale"
-            value={Math.round(appearance.uiScale * 100)}
-            display={`${Math.round(appearance.uiScale * 100)}%`}
-            min={Math.round(UI_SCALE_MIN * 100)}
-            max={Math.round(UI_SCALE_MAX * 100)}
-            step={10}
-            onChange={appearance.onUiScale}
+            value={String(Math.round(appearance.uiScale * 100))}
+            options={UI_SCALE_PERCENTS.map((percent) => ({
+              value: String(percent),
+              label: `${percent}%`,
+            }))}
+            onChange={(value) => appearance.onUiScale(Number(value))}
           />
         </Row>
         <Row
@@ -3426,12 +3425,15 @@ function ProviderAccountsSettings() {
                           status={accountStatus(limits, usage.now)}
                           className="shrink-0"
                         />
-                        <span className="min-w-0 truncate text-content/30">
-                          {identitySubtitle(identity) ??
-                            (account.isDefault
+                        <ProviderAccountSubtitle
+                          identity={identity}
+                          fallback={
+                            account.isDefault
                               ? "Provider CLI profile"
-                              : "Isolated profile")}
-                        </span>
+                              : "Isolated profile"
+                          }
+                          className="truncate text-content/30"
+                        />
                       </div>
                     </div>
                     <AccountUsageMeters limits={limits} now={usage.now} />
