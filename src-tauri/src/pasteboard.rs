@@ -26,6 +26,8 @@ fn write_file_to(pb: &objc2_app_kit::NSPasteboard, path: &std::path::Path) -> Re
 
 #[cfg(target_os = "macos")]
 fn file_paths_from(pb: &objc2_app_kit::NSPasteboard) -> Vec<String> {
+    use objc2_foundation::NSURL;
+
     let Some(items) = pb.pasteboardItems() else {
         return Vec::new();
     };
@@ -33,9 +35,13 @@ fn file_paths_from(pb: &objc2_app_kit::NSPasteboard) -> Vec<String> {
     items
         .iter()
         .filter_map(|item| item.stringForType(file_url))
-        .filter_map(|s| url::Url::parse(&s.to_string()).ok())
-        .filter_map(|u| u.to_file_path().ok())
-        .map(|p| p.to_string_lossy().into_owned())
+        .filter_map(|s| NSURL::URLWithString(&s))
+        .filter(|url| url.isFileURL())
+        // Finder can publish file reference URLs (file:///.file/id=...),
+        // which must be resolved by Foundation before using a filesystem path.
+        .filter_map(|url| url.filePathURL())
+        .filter_map(|url| url.path())
+        .map(|path| path.to_string())
         .collect()
 }
 
@@ -425,7 +431,7 @@ mod png_tests {
 mod tests {
     use super::{file_paths_from, write_file_to};
     use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL, NSPasteboardTypeString};
-    use objc2_foundation::NSString;
+    use objc2_foundation::{NSString, NSURL};
     use std::path::Path;
 
     #[test]
@@ -444,12 +450,54 @@ mod tests {
     }
 
     #[test]
+    fn resolves_file_reference_urls_to_the_current_image_path() {
+        let dir =
+            std::env::temp_dir().join(format!("monocode-file-reference-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(dir).unwrap();
+        let original = dir.join("copied image.png");
+        std::fs::write(
+            &original,
+            super::encode_png(1, 1, &[10, 20, 30, 255]).unwrap(),
+        )
+        .unwrap();
+        let url = NSURL::fileURLWithPath(&NSString::from_str(original.to_str().unwrap()));
+        let reference = url.fileReferenceURL().unwrap();
+        assert!(reference.isFileReferenceURL());
+
+        let pb = NSPasteboard::pasteboardWithUniqueName();
+        pb.clearContents();
+        assert!(
+            pb.setString_forType(&reference.absoluteString().unwrap(), unsafe {
+                NSPasteboardTypeFileURL
+            })
+        );
+        // A file reference follows the file even after its name changes.
+        let renamed = dir.join("renamed image #1.png");
+        std::fs::rename(&original, &renamed).unwrap();
+        let paths = file_paths_from(&pb);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(paths, vec![renamed.to_str().unwrap().to_string()]);
+    }
+
+    #[test]
     fn ignores_pasteboards_without_file_urls() {
         let pb = NSPasteboard::pasteboardWithUniqueName();
         pb.clearContents();
         pb.setString_forType(&NSString::from_str("hello"), unsafe {
             NSPasteboardTypeString
         });
+        assert!(file_paths_from(&pb).is_empty());
+    }
+
+    #[test]
+    fn ignores_non_file_urls_in_file_url_items() {
+        let pb = NSPasteboard::pasteboardWithUniqueName();
+        pb.clearContents();
+        pb.setString_forType(
+            &NSString::from_str("https://example.com/image.png"),
+            unsafe { NSPasteboardTypeFileURL },
+        );
         assert!(file_paths_from(&pb).is_empty());
     }
 
