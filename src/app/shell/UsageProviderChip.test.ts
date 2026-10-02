@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   idleRateLimits,
   type ProviderRateLimits,
@@ -18,6 +19,9 @@ import {
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => null),
+}));
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: vi.fn(async () => undefined),
 }));
 
 const now = Date.parse("2026-09-16T12:00:00Z");
@@ -71,6 +75,7 @@ let root: Root;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.mocked(invoke).mockReset().mockResolvedValue(null);
+  vi.mocked(openUrl).mockClear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -551,4 +556,144 @@ it("keeps scoped and shared meters distinct in the account picker when labels ma
   } finally {
     error.mockRestore();
   }
+});
+
+function claudeResetLimits(): ProviderRateLimits {
+  return {
+    ...idleRateLimits("claude"),
+    status: "ok",
+    resetCredits: {
+      availableCount: 2,
+      credits: [
+        {
+          id: "cedar_ember:full",
+          resetType: "claudeCedar",
+          status: "available",
+          remainingCount: 2,
+          grantedAt: null,
+          expiresAt: now + 86400000,
+          title: "Full reset",
+          description:
+            "Resets your 5-hour session limit and weekly limit. Your scheduled weekly reset stays unchanged.",
+        },
+      ],
+    },
+  };
+}
+
+it("shows Claude reset scope, expiry and remaining count without inventing extra grants", async () => {
+  const onConsumeReset = vi.fn(async () => "reset" as const);
+  act(() =>
+    root.render(
+      createElement(UsageProviderChip, {
+        limits: claudeResetLimits(),
+        now,
+        onConsumeReset,
+      }),
+    ),
+  );
+  await act(async () => button("Claude Code usage details").click());
+  expect(document.body.textContent).toContain("Limit resets");
+  expect(document.body.textContent).toContain("Full reset · 2 left");
+  expect(document.body.textContent).toContain(
+    "5-hour session limit and weekly limit",
+  );
+  expect(document.body.textContent).toContain("Expires in 1d");
+  expect(
+    [...document.querySelectorAll("button")].filter(
+      (item) => item.textContent === "Use reset",
+    ),
+  ).toHaveLength(1);
+  await act(async () => button("Use reset").click());
+  expect(onConsumeReset).not.toHaveBeenCalled();
+  await act(async () => button("Cancel").click());
+  expect(onConsumeReset).not.toHaveBeenCalled();
+  await act(async () => button("Use reset").click());
+  await act(async () => button("Confirm").click());
+  expect(onConsumeReset).toHaveBeenCalledExactlyOnceWith("cedar_ember:full");
+  expect(document.body.textContent).toContain("Claude Code usage was reset.");
+});
+
+it("keeps unusable and expired Claude reset offers non-interactive", async () => {
+  const limits = claudeResetLimits();
+  limits.resetCredits!.credits![0].status = "unavailable";
+  limits.resetCredits!.credits![0].unavailableReason =
+    "Available when you reach a covered usage limit.";
+  const onConsumeReset = vi.fn();
+  act(() =>
+    root.render(
+      createElement(UsageProviderChip, { limits, now, onConsumeReset }),
+    ),
+  );
+  await act(async () => button("Claude Code usage details").click());
+  expect(document.body.textContent).toContain(
+    "Available when you reach a covered usage limit.",
+  );
+  expect(
+    [...document.querySelectorAll("button")].some(
+      (item) => item.textContent === "Use reset",
+    ),
+  ).toBe(false);
+  limits.resetCredits!.credits![0].status = "available";
+  limits.resetCredits!.credits![0].expiresAt = now - 1;
+  act(() =>
+    root.render(
+      createElement(UsageProviderChip, { limits, now, onConsumeReset }),
+    ),
+  );
+  expect(
+    [...document.querySelectorAll("button")].some(
+      (item) => item.textContent === "Use reset",
+    ),
+  ).toBe(false);
+  expect(onConsumeReset).not.toHaveBeenCalled();
+});
+
+it("links to Claude for offers unavailable on the OAuth surface", async () => {
+  const limits = {
+    ...idleRateLimits("claude"),
+    status: "ok" as const,
+    resetCredits: {
+      availableCount: 0,
+      credits: [],
+      notice: "Some reset offers are only available in Claude Web or Desktop.",
+    },
+  };
+  act(() => root.render(createElement(UsageProviderChip, { limits, now })));
+  await act(async () => button("Claude Code usage details").click());
+  expect(document.body.textContent).toContain("Claude Web or Desktop");
+  await act(async () => button("Manage resets in Claude").click());
+  expect(openUrl).toHaveBeenCalledExactlyOnceWith(
+    "https://claude.ai/settings/usage",
+  );
+});
+
+it("reports unconfirmed Claude resets as errors and cancels confirmation when accounts change", async () => {
+  const limits = claudeResetLimits();
+  const onConsumeReset = vi.fn(async () => {
+    throw new Error("Claude reset was not confirmed.");
+  });
+  const render = (accountId: string) =>
+    act(() =>
+      root.render(
+        createElement(UsageProviderChip, {
+          limits,
+          now,
+          accountId,
+          onConsumeReset,
+        }),
+      ),
+    );
+  render("account-a");
+  await act(async () => button("Claude Code usage details").click());
+  await act(async () => button("Use reset").click());
+  render("account-b");
+  expect(document.body.textContent).not.toContain("Spend this reset now?");
+  expect(onConsumeReset).not.toHaveBeenCalled();
+  await act(async () => button("Use reset").click());
+  await act(async () => button("Confirm").click());
+  expect(document.body.textContent).toContain(
+    "Claude reset was not confirmed.",
+  );
+  expect(document.body.textContent).not.toContain("usage was reset.");
 });

@@ -11,7 +11,7 @@ import {
   type RateLimitResetCredit,
   type RateLimitWindow,
 } from "../../features/providers/model/rateLimits";
-import type { CodexRateLimitResetOutcome } from "../../features/providers/model/rateLimitsFetch";
+import type { RateLimitResetOutcome } from "../../features/providers/model/rateLimitsFetch";
 import { mascotPath, projectMascot } from "../../features/projects/model/projectMascots";
 import { projectKey, projectName } from "../../shared/lib/paths";
 import { HARNESS_TITLE, type HarnessId } from "../../features/sessions/model/session";
@@ -52,6 +52,7 @@ import {
   type ProviderAccountIdentity,
 } from "../../features/providers/model/providerAccountIdentity";
 import { ProviderAccountSubtitle } from "../../features/providers/ui/ProviderAccountSubtitle";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useShowRemainingUsage } from "../../features/settings/model/displayPrefs";
 
 type UsageWindowEntry = {
@@ -61,7 +62,7 @@ type UsageWindowEntry = {
 };
 
 type ResetActionState =
-  "idle" | "confirming" | "using" | CodexRateLimitResetOutcome | "error";
+  "idle" | "confirming" | "using" | RateLimitResetOutcome | "error";
 
 export function UsageProviderChip({
   limits,
@@ -85,7 +86,7 @@ export function UsageProviderChip({
   onSelectAccount?: (accountId: string) => void;
   onAddAccount?: (label: string) => Promise<ProviderAccount>;
   onManageAccounts?: () => void;
-  onConsumeReset?: (creditId?: string) => Promise<CodexRateLimitResetOutcome>;
+  onConsumeReset?: (creditId?: string) => Promise<RateLimitResetOutcome>;
   onReconnect?: () => Promise<void>;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
@@ -95,6 +96,7 @@ export function UsageProviderChip({
   );
   const [resetAction, setResetAction] = useState<ResetActionState>("idle");
   const [activeResetKey, setActiveResetKey] = useState<string | null>(null);
+  const resetGeneration = useRef(0);
   const [resetError, setResetError] = useState<string | null>(null);
   const [reconnectState, setReconnectState] =
     useState<ProviderSignInState>("idle");
@@ -193,17 +195,28 @@ export function UsageProviderChip({
     }
   };
 
+  useEffect(() => {
+    resetGeneration.current += 1;
+    setResetAction("idle");
+    setActiveResetKey(null);
+    setResetError(null);
+  }, [limits.provider, accountId]);
+
   const useReset = async (
     credit: RateLimitResetCredit | undefined,
     rowKey: string,
   ) => {
     if (!onConsumeReset) return;
+    const generation = resetGeneration.current;
     setActiveResetKey(rowKey);
     setResetAction("using");
     setResetError(null);
     try {
-      setResetAction(await onConsumeReset(credit?.id));
+      const outcome = await onConsumeReset(credit?.id);
+      if (generation !== resetGeneration.current) return;
+      setResetAction(outcome);
     } catch (error) {
+      if (generation !== resetGeneration.current) return;
       setResetError(
         error instanceof Error ? error.message : "Could not use this reset",
       );
@@ -432,7 +445,7 @@ export function UsageProviderChip({
                 />
               ) : null}
 
-              {limits.provider === "codex" ? (
+              {limits.provider === "codex" || limits.provider === "claude" ? (
                 <BankedResets
                   limits={limits}
                   now={now}
@@ -859,12 +872,19 @@ function BankedResets({
   canUse: boolean;
 }) {
   const count = limits.resetCredits?.availableCount ?? 0;
-  if (count <= 0) return null;
+  if (count <= 0 && !limits.resetCredits?.notice && action === "idle")
+    return null;
 
   const detailedCredits = (limits.resetCredits?.credits ?? []).filter(
-    (credit) => credit.status === "available" || credit.status === "unknown",
+    (credit) =>
+      credit.status === "available" ||
+      credit.status === "unknown" ||
+      (limits.provider === "claude" && credit.status === "unavailable"),
   );
-  const unlistedCount = Math.max(0, count - detailedCredits.length);
+  const unlistedCount =
+    limits.provider === "claude"
+      ? 0
+      : Math.max(0, count - detailedCredits.length);
   const rows: Array<RateLimitResetCredit | null> = [
     ...detailedCredits,
     ...Array.from({ length: unlistedCount }, () => null),
@@ -874,13 +894,16 @@ function BankedResets({
       <div className="relative min-h-[78px] overflow-hidden rounded-lg bg-content/[0.04] px-3 py-3 pr-[84px] ring-1 ring-inset ring-content/[0.06]">
         <div className="relative z-10 min-w-0">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-[11px] font-medium">Banked resets</h3>
+            <h3 className="text-[11px] font-medium">
+              {limits.provider === "claude" ? "Limit resets" : "Banked resets"}
+            </h3>
             <span className="rounded-full bg-content/[0.07] px-1.5 py-px text-[9px] font-medium tabular-nums text-content/65 ring-1 ring-inset ring-content/[0.07]">
               {count}
             </span>
           </div>
           <p className="mt-0.5 text-[10px] leading-4 text-content/40">
-            {count} {count === 1 ? "reset" : "resets"} available
+            {count} {count === 1 ? "reset" : "resets"}{" "}
+            {limits.provider === "claude" ? "saved" : "available"}
           </p>
         </div>
         <BankedResetMascot
@@ -890,6 +913,36 @@ function BankedResets({
         />
       </div>
 
+      {limits.resetCredits?.notice ? (
+        <p className="mt-2 text-[10px] leading-4 text-content/50">
+          {limits.resetCredits.notice}
+        </p>
+      ) : null}
+      {limits.provider === "claude" ? (
+        <button
+          type="button"
+          className="mt-1 text-[10px] text-content/60 underline hover:text-content"
+          onClick={() =>
+            void openUrl("https://claude.ai/settings/usage").catch(
+              () => undefined,
+            )
+          }
+        >
+          Manage resets in Claude
+        </button>
+      ) : null}
+      {activeResetKey &&
+      !rows.some(
+        (credit, index) =>
+          (credit?.id ?? `unlisted-${index}`) === activeResetKey,
+      ) &&
+      (isResetOutcome(action) || action === "error") ? (
+        <p role="status" className="mt-2 text-[10px] text-content/60">
+          {action === "error"
+            ? error
+            : resetOutcomeLabel(action, limits.provider)}
+        </p>
+      ) : null}
       <div
         className="mt-2 max-h-56 overflow-y-auto overscroll-contain"
         aria-label="Available banked resets"
@@ -901,6 +954,7 @@ function BankedResets({
             return (
               <BankedResetRow
                 key={rowKey}
+                provider={limits.provider}
                 credit={credit}
                 index={index}
                 now={now}
@@ -988,6 +1042,7 @@ function mascotFacePlatePath(rows: readonly string[]): string {
 }
 
 function BankedResetRow({
+  provider,
   credit,
   index,
   now,
@@ -999,6 +1054,7 @@ function BankedResetRow({
   onCancel,
   onUse,
 }: {
+  provider: ProviderRateLimits["provider"];
   credit: RateLimitResetCredit | null;
   index: number;
   now: number;
@@ -1014,6 +1070,9 @@ function BankedResetRow({
     <article className="rounded-lg bg-content/[0.04] px-2.5 py-2 ring-1 ring-inset ring-content/[0.06]">
       <h4 className="text-[10px] font-medium leading-4 text-content/70">
         {credit?.title ?? `Banked reset ${index + 1}`}
+        {(credit?.remainingCount ?? 0) > 1
+          ? ` · ${credit!.remainingCount} left`
+          : ""}
       </h4>
       {credit?.description ? (
         <p className="mt-0.5 text-[10px] leading-4 text-content/45">
@@ -1053,9 +1112,12 @@ function BankedResetRow({
             }`}
             role="status"
           >
-            {action === "error" ? error : resetOutcomeLabel(action)}
+            {action === "error" ? error : resetOutcomeLabel(action, provider)}
           </span>
-        ) : canUse && action !== "confirming" ? (
+        ) : canUse &&
+          action !== "confirming" &&
+          credit?.status !== "unavailable" &&
+          (credit?.expiresAt == null || credit.expiresAt > now) ? (
           <button
             type="button"
             className="h-6 shrink-0 rounded-md bg-content/[0.07] px-2.5 text-[10px] font-medium text-content/70 ring-1 ring-inset ring-content/[0.08] transition-[background-color,color,transform] duration-150 ease-out hover:bg-content/[0.11] hover:text-content active:scale-[0.97] disabled:pointer-events-none disabled:opacity-35"
@@ -1066,6 +1128,11 @@ function BankedResetRow({
           </button>
         ) : null}
       </div>
+      {credit?.unavailableReason ? (
+        <p className="mt-1 text-[10px] leading-4 text-content/45">
+          {credit.unavailableReason}
+        </p>
+      ) : null}
       {action === "confirming" ? (
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-content/[0.07] pt-2">
           <p className="text-[10px] leading-4 text-content/50">
@@ -1082,6 +1149,11 @@ function BankedResetRow({
             <button
               type="button"
               className="h-6 rounded-md bg-content px-2.5 text-[10px] font-medium text-background-base transition-transform duration-150 ease-out active:scale-[0.97]"
+              disabled={
+                disabled ||
+                credit?.status === "unavailable" ||
+                (credit?.expiresAt != null && credit.expiresAt <= now)
+              }
               onClick={onUse}
             >
               Confirm
@@ -1142,8 +1214,11 @@ function updatedLabel(limits: ProviderRateLimits, now: number): string {
   return `Updated ${Math.floor(elapsedMinutes / 60)}h ago`;
 }
 
-function resetOutcomeLabel(outcome: CodexRateLimitResetOutcome): string {
-  if (outcome === "reset") return "Codex usage was reset.";
+function resetOutcomeLabel(
+  outcome: RateLimitResetOutcome,
+  provider: ProviderRateLimits["provider"],
+): string {
+  if (outcome === "reset") return `${HARNESS_TITLE[provider]} usage was reset.`;
   if (outcome === "nothingToReset") return "There’s no active usage to reset.";
   if (outcome === "noCredit") return "No banked resets are available.";
   return "That reset was already used.";
@@ -1151,7 +1226,7 @@ function resetOutcomeLabel(outcome: CodexRateLimitResetOutcome): string {
 
 function isResetOutcome(
   value: ResetActionState,
-): value is CodexRateLimitResetOutcome {
+): value is RateLimitResetOutcome {
   return (
     value === "reset" ||
     value === "nothingToReset" ||

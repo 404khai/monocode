@@ -1,4 +1,5 @@
 import { asRecord } from "../../../integrations/harness/providers/codex/codexProtocol";
+import { parseClaudeResetCredits } from "./claudeResetCredits";
 
 export type RateLimitProvider = "claude" | "codex" | "opencode";
 
@@ -18,18 +19,22 @@ export type ScopedWeeklyRateLimitWindow = RateLimitWindow & { label: string };
 
 export type RateLimitResetCredit = {
   id: string;
-  resetType: "codexRateLimits" | "unknown";
-  status: "available" | "redeeming" | "redeemed" | "unknown";
+  resetType: "codexRateLimits" | "claudeCedar" | "claudeJuniper" | "unknown";
+  status: "available" | "redeeming" | "redeemed" | "unavailable" | "unknown";
   grantedAt: number | null;
   expiresAt: number | null;
   title: string | null;
   description: string | null;
+  remainingCount?: number;
+  unavailableReason?: string;
 };
 
 export type RateLimitResetCredits = {
   availableCount: number;
   /** Optional detail rows; the backend can report only the aggregate count. */
   credits: RateLimitResetCredit[] | null;
+  /** Eligibility or discovery information for Claude reset offers. */
+  notice?: string;
 };
 
 export type ProviderRateLimits = {
@@ -39,7 +44,7 @@ export type ProviderRateLimits = {
   monthly: RateLimitWindow | null;
   /** Model-specific weekly limits, when supplied by the provider. */
   scopedWeekly?: ScopedWeeklyRateLimitWindow[];
-  /** Codex-only banked rate-limit reset rewards, when supplied by app-server. */
+  /** Saved provider reset offers, when supplied by the provider. */
   resetCredits: RateLimitResetCredits | null;
   updatedAt: number;
   error: string | null;
@@ -306,7 +311,7 @@ export function parseClaudeOAuthUsage(body: string): ProviderRateLimits {
     weekly: mapUsageWindow(rec.seven_day, WEEKLY_WINDOW_MINUTES),
     monthly: null,
     scopedWeekly: parseClaudeScopedWeekly(rec),
-    resetCredits: null,
+    resetCredits: parseClaudeResetCredits(rec),
     updatedAt: Date.now(),
     error: null,
     status: "ok",
