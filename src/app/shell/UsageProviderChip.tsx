@@ -587,7 +587,7 @@ function ProviderAccountPicker({
                       {meters.map((entry) => (
                         // Short "5h" / "wk" titles, as on the footer chip.
                         <UsageMeter
-                          key={entry.title}
+                          key={entry.key}
                           title={formatWindowLabel(entry.window.windowMinutes)}
                           window={entry.window}
                           now={now}

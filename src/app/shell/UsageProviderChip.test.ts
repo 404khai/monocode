@@ -501,3 +501,54 @@ it("shows scoped weekly cards after the shared weekly card and keeps the footer 
       ?.getAttribute("aria-valuenow"),
   ).toBe("5");
 });
+
+it("keeps scoped and shared meters distinct in the account picker when labels match", async () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const limits = {
+      ...idleRateLimits("claude"),
+      status: "ok" as const,
+      weekly: { usedPercent: 20, windowMinutes: 10080, resetsAt: null },
+      scopedWeekly: [
+        {
+          label: "Weekly",
+          usedPercent: 75,
+          windowMinutes: 10080,
+          resetsAt: null,
+        },
+      ],
+    };
+    act(() =>
+      root.render(
+        createElement(UsageProviderChip, {
+          limits,
+          now,
+          accountId: "default",
+          accounts: [
+            {
+              id: "default",
+              provider: "claude",
+              label: "Main",
+              isDefault: true,
+            },
+          ],
+          onSelectAccount: vi.fn(),
+          onAddAccount: vi.fn(),
+        }),
+      ),
+    );
+    await act(async () => button("Claude Code usage details").click());
+    await act(async () => button("Switch Claude Code account").click());
+    const accountRow = button("Main").parentElement!;
+    expect(
+      [...accountRow.querySelectorAll('[role="progressbar"]')].map((bar) =>
+        bar.getAttribute("aria-valuenow"),
+      ),
+    ).toEqual(["20", "75"]);
+    expect(error.mock.calls.flat().join(" ")).not.toMatch(
+      /same key|unique.*key/i,
+    );
+  } finally {
+    error.mockRestore();
+  }
+});
