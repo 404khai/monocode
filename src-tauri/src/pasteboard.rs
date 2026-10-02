@@ -35,6 +35,9 @@ fn file_paths_from(pb: &objc2_app_kit::NSPasteboard) -> Vec<String> {
     items
         .iter()
         .filter_map(|item| item.stringForType(file_url))
+        // Foundation drops remote hosts when resolving file URLs. Preserve
+        // the old parser's empty/localhost host restriction first.
+        .filter(|s| url::Url::parse(&s.to_string()).is_ok_and(|url| url.to_file_path().is_ok()))
         .filter_map(|s| NSURL::URLWithString(&s))
         .filter(|url| url.isFileURL())
         // Finder can publish file reference URLs (file:///.file/id=...),
@@ -451,10 +454,17 @@ mod tests {
 
     #[test]
     fn resolves_file_reference_urls_to_the_current_image_path() {
-        let dir =
-            std::env::temp_dir().join(format!("monocode-file-reference-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = std::fs::canonicalize(dir).unwrap();
+        struct TempDir(std::path::PathBuf);
+        impl Drop for TempDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let temp = TempDir(
+            std::env::temp_dir().join(format!("monocode-file-reference-{}", uuid::Uuid::new_v4())),
+        );
+        std::fs::create_dir_all(&temp.0).unwrap();
+        let dir = std::fs::canonicalize(&temp.0).unwrap();
         let original = dir.join("copied image.png");
         std::fs::write(
             &original,
@@ -476,8 +486,38 @@ mod tests {
         let renamed = dir.join("renamed image #1.png");
         std::fs::rename(&original, &renamed).unwrap();
         let paths = file_paths_from(&pb);
-        std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(paths, vec![renamed.to_str().unwrap().to_string()]);
+    }
+
+    #[test]
+    fn ignores_file_urls_with_non_local_hosts() {
+        let pb = NSPasteboard::pasteboardWithUniqueName();
+        for url in [
+            "file://server.example/tmp/a.png",
+            "file://127.0.0.1/tmp/a.png",
+            "file://[::1]/tmp/a.png",
+            "file://server.example/.file/id=6571367.29770420",
+        ] {
+            pb.clearContents();
+            assert!(
+                pb.setString_forType(&NSString::from_str(url), unsafe { NSPasteboardTypeFileURL })
+            );
+            assert!(file_paths_from(&pb).is_empty(), "accepted {url}");
+        }
+    }
+
+    #[test]
+    fn accepts_file_urls_with_a_localhost_host() {
+        let pb = NSPasteboard::pasteboardWithUniqueName();
+        pb.clearContents();
+        assert!(pb.setString_forType(
+            &NSString::from_str("file://localhost/tmp/finder%20copy.txt"),
+            unsafe { NSPasteboardTypeFileURL },
+        ));
+        assert_eq!(
+            file_paths_from(&pb),
+            vec!["/tmp/finder copy.txt".to_string()]
+        );
     }
 
     #[test]
