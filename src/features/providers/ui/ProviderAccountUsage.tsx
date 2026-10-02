@@ -79,13 +79,17 @@ export function AccountUsageRefresh({ usage }: { usage: AccountUsage }) {
   );
 }
 
-/** Titled 5h / weekly / monthly windows an account has data for. */
+/** Titled shared and model-specific windows an account has data for. */
 export function meterWindows(
   limits: ProviderRateLimits | undefined,
 ): { title: string; window: RateLimitWindow }[] {
   return [
     limits?.session ? { title: "5h", window: limits.session } : null,
     limits?.weekly ? { title: "Weekly", window: limits.weekly } : null,
+    ...(limits?.scopedWeekly ?? []).map((window) => ({
+      title: window.label,
+      window,
+    })),
     limits?.monthly ? { title: "Monthly", window: limits.monthly } : null,
   ].filter((entry) => entry != null);
 }
@@ -104,7 +108,7 @@ export function AccountUsageMeters({
     const loading =
       !limits || limits.status === "idle" || limits.status === "fetching";
     return (
-      <div className="hidden shrink-0 gap-4 sm:flex">
+      <div className="hidden min-w-0 flex-wrap justify-end gap-4 sm:flex">
         {loading ? (
           <>
             <MeterSkeleton />
@@ -119,7 +123,7 @@ export function AccountUsageMeters({
   }
 
   return (
-    <div className="hidden shrink-0 gap-4 sm:flex">
+    <div className="hidden min-w-0 flex-wrap justify-end gap-4 sm:flex">
       {windows.map((entry) => (
         <UsageMeter
           key={entry.title}

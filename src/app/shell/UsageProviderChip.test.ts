@@ -4,7 +4,10 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import type { ProviderRateLimits } from "../../features/providers/model/rateLimits";
+import {
+  idleRateLimits,
+  type ProviderRateLimits,
+} from "../../features/providers/model/rateLimits";
 import { projectKey } from "../../shared/lib/paths";
 import { saveTabGroupMascot } from "../../features/workspace/model/tabGroups";
 import { needsProviderLogin, UsageProviderChip } from "./UsageProviderChip";
@@ -459,4 +462,42 @@ describe("UsageProviderChip", () => {
     ].filter((item) => item.textContent === "Use reset");
     expect(useButtons).toHaveLength(2);
   });
+});
+
+it("shows scoped weekly cards after the shared weekly card and keeps the footer compact", async () => {
+  const limits = {
+    ...idleRateLimits("claude"),
+    status: "ok" as const,
+    session: { usedPercent: 20, windowMinutes: 300, resetsAt: now + 3600000 },
+    weekly: { usedPercent: 30, windowMinutes: 10080, resetsAt: now + 86400000 },
+    scopedWeekly: [
+      {
+        label: "Fable 5.1",
+        usedPercent: 95,
+        windowMinutes: 10080,
+        resetsAt: now + 2 * 86400000,
+      },
+    ],
+  };
+  act(() => root.render(createElement(UsageProviderChip, { limits, now })));
+  const trigger = button("Claude Code usage details");
+  expect(trigger.textContent).not.toContain("95%");
+  expect(trigger.title).toContain("Weekly · Fable 5.1: 95% used");
+  await act(async () => trigger.click());
+  const dialog = document.querySelector('[role="dialog"]');
+  expect(
+    [...dialog!.querySelectorAll("h3")].map((heading) => heading.textContent),
+  ).toEqual(["5-hour limit", "Weekly limit", "Weekly · Fable 5.1"]);
+  expect(
+    dialog
+      ?.querySelector('[aria-label="Weekly · Fable 5.1 used"]')
+      ?.getAttribute("aria-valuenow"),
+  ).toBe("95");
+  expect(dialog?.textContent).toContain("Resets in 2d");
+  act(() => saveShowRemainingUsage(true));
+  expect(
+    dialog
+      ?.querySelector('[aria-label="Weekly · Fable 5.1 remaining"]')
+      ?.getAttribute("aria-valuenow"),
+  ).toBe("5");
 });

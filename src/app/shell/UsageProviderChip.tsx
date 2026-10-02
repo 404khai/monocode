@@ -55,7 +55,8 @@ import { ProviderAccountSubtitle } from "../../features/providers/ui/ProviderAcc
 import { useShowRemainingUsage } from "../../features/settings/model/displayPrefs";
 
 type UsageWindowEntry = {
-  key: "session" | "weekly" | "monthly";
+  key: string;
+  label?: string;
   window: RateLimitWindow;
 };
 
@@ -103,22 +104,31 @@ export function UsageProviderChip({
     (limits.status === "fetching" &&
       !limits.session &&
       !limits.weekly &&
-      !limits.monthly);
+      !limits.monthly &&
+      !limits.scopedWeekly?.length);
   const disconnected = limits.status === "unavailable";
   const windows = usageWindows(limits);
+  const sharedWindows = windows.filter((entry) => !entry.label);
+  const footerWindows = sharedWindows.length > 0 ? sharedWindows : windows;
   const loginView = Boolean(
     onReconnect &&
     windows.length === 0 &&
     (needsProviderLogin(limits) || reconnectState !== "idle"),
   );
-  const tightest = windows.reduce<RateLimitWindow | null>((best, entry) => {
-    if (!best || entry.window.usedPercent > best.usedPercent) {
-      return entry.window;
-    }
-    return best;
-  }, null);
+  const tightest = footerWindows.reduce<RateLimitWindow | null>(
+    (best, entry) => {
+      if (!best || entry.window.usedPercent > best.usedPercent) {
+        return entry.window;
+      }
+      return best;
+    },
+    null,
+  );
   const tooltip = windows
-    .map((entry) => rateLimitWindowTooltip(entry.window, now))
+    .map(
+      (entry) =>
+        `${entry.label ? `Weekly · ${entry.label}: ` : ""}${rateLimitWindowTooltip(entry.window, now)}`,
+    )
     .join(" · ");
   const providerLabel = presentation?.label ?? HARNESS_TITLE[limits.provider];
   const iconHarness = presentation?.harness ?? limits.provider;
@@ -252,7 +262,7 @@ export function UsageProviderChip({
             ) : null}
             {tightest ? <MiniBar usedPct={tightest.usedPercent} /> : null}
             <span className="flex min-w-0 items-center gap-1 tabular-nums">
-              {windows.map((entry, index) => (
+              {footerWindows.map((entry, index) => (
                 <span
                   key={entry.key}
                   className="inline-flex items-center gap-1"
@@ -399,6 +409,7 @@ export function UsageProviderChip({
                     <UsageWindowCard
                       key={entry.key}
                       kind={entry.key}
+                      label={entry.label}
                       window={entry.window}
                       now={now}
                     />
@@ -745,6 +756,11 @@ function usageWindows(limits: ProviderRateLimits): UsageWindowEntry[] {
       ? ({ key: "session", window: limits.session } as const)
       : null,
     limits.weekly ? ({ key: "weekly", window: limits.weekly } as const) : null,
+    ...(limits.scopedWeekly ?? []).map<UsageWindowEntry>((window) => ({
+      key: `scoped-weekly:${window.label}`,
+      label: window.label,
+      window,
+    })),
     limits.monthly
       ? ({ key: "monthly", window: limits.monthly } as const)
       : null,
@@ -753,10 +769,12 @@ function usageWindows(limits: ProviderRateLimits): UsageWindowEntry[] {
 
 function UsageWindowCard({
   kind,
+  label,
   window,
   now,
 }: {
   kind: UsageWindowEntry["key"];
+  label?: string;
   window: RateLimitWindow;
   now: number;
 }) {
@@ -764,8 +782,9 @@ function UsageWindowCard({
   const pct = clampUsedPercent(window.usedPercent);
   const remaining = 100 - pct;
   const shown = showRemaining ? remaining : pct;
-  const title =
-    kind === "session"
+  const title = label
+    ? `Weekly · ${label}`
+    : kind === "session"
       ? "5-hour limit"
       : kind === "weekly"
         ? "Weekly limit"

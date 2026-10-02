@@ -2,7 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { UsageMeter } from "./ProviderAccountUsage";
+import { idleRateLimits } from "../model/rateLimits";
+import { AccountUsageMeters, UsageMeter } from "./ProviderAccountUsage";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -54,4 +55,29 @@ it("flips the meter when another window turns on remaining usage", async () => {
     "width: 77%;",
   );
   expect(container.textContent).toContain("77% left");
+});
+
+it("renders model weekly meters after the shared weekly meter", () => {
+  const now = Date.now();
+  const limits = {
+    ...idleRateLimits("claude"),
+    weekly: { usedPercent: 20, windowMinutes: 10080, resetsAt: null },
+    scopedWeekly: [
+      {
+        label: "Fable 5.1",
+        usedPercent: 75,
+        windowMinutes: 10080,
+        resetsAt: now + 86400000,
+      },
+    ],
+  };
+  act(() => root.render(createElement(AccountUsageMeters, { limits, now })));
+  const bars = container.querySelectorAll('[role="progressbar"]');
+  expect([...bars].map((bar) => bar.getAttribute("aria-label"))).toEqual([
+    "Weekly limit used",
+    "Fable 5.1 limit used",
+  ]);
+  expect(bars[1].getAttribute("aria-valuenow")).toBe("75");
+  expect(container.textContent).toContain("Fable 5.1");
+  expect(container.textContent).toContain("1d");
 });
