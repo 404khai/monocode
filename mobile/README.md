@@ -10,6 +10,12 @@ Inbox now previews GitHub issues with search, filters, colored labels, issue det
 
 Thread taps open a chat preview with expandable command/file activity and a fixed bottom composer. The glass down-arrow appears only when more transcript content is below the visible area. Drafts and explicitly unsent preview messages survive back navigation in memory; no agent runs or commands are executed.
 
+## Android preview
+
+Android has a Jetpack Compose session list and Material navigation bar through `@expo/ui`. The same five destinations (Sessions, Notes, Automations, Settings, Search) use Expo Router's headless tabs, retaining each tab's navigation history. Project folders, pinned threads, statuses, search, filters, inbox, group-specific new-session context, and thread taps use the existing fixtures and models. The list scrolls with Compose `LazyColumn`; native Compose New session and Filter buttons float above the navigation bar. Filters live in a popup menu; the inbox icon sits beside the screen title. The session list keeps the iOS 20-point side gutters and rounded folder groups. Android uses Material symbols and a Compose title over the Pacman background, which starts at the top of the screen. The remaining feature screens and sheets use their shared React Native implementations.
+
+For a phone preview, run `npx expo start --go --lan` and scan the terminal QR code in an Expo Go version compatible with SDK 57, with both devices on the same network. A matching development build can use `npx expo start --dev-client --lan` instead. Android typechecking and bundling do not establish visual or device validation; verify the list, tab switching, search keyboard, and back navigation on the phone.
+
 ## Run locally
 
 ```sh
