@@ -5,6 +5,7 @@ import { useAppTheme } from '@/shared/theme/useAppTheme';
 import { AppSymbol } from '@/shared/ui/AppSymbol';
 import { ProviderIcon } from '@/shared/ui/ProviderIcon';
 import { HARNESSES } from '@/features/arcade/model/harnesses';
+import { ChatBackgroundSettings } from './ChatBackgroundSettings';
 import { SETTINGS_GROUPS, SETTINGS_SECTIONS, SETTINGS_INDEX, KEYBINDINGS, type SettingsSectionId } from '../model/settingsCatalog';
 
 const icons = {
@@ -26,7 +27,7 @@ export function SettingsScreen() {
       <Text style={{color:t.text,fontSize:16}}>Settings</Text>
     </Pressable>}
     <Text accessibilityRole="header" style={[styles.title,{color:t.text}]}>{section?.label ?? 'Settings'}</Text>
-    {section && <Text style={[styles.description,{color:t.secondaryText}]}>{section.description}</Text>}
+    {section && <Text style={[styles.description,{color:t.secondaryText}]}>{selected==='appearance'?'Customize your chat background on this phone.':section.description}</Text>}
     <TextInput accessibilityLabel="Search settings" placeholder={section ? 'Search '+section.label.toLowerCase() : 'Search settings'}
       placeholderTextColor={t.tertiaryText} value={query} onChangeText={setQuery} style={[styles.search,{color:t.text,backgroundColor:t.elevated}]}/>
     {!section ? SETTINGS_GROUPS.map(group=>{
@@ -46,7 +47,7 @@ export function SettingsScreen() {
         </View>
       </View>;
     }) : <>
-      {selected==='keybindings' ? <View style={[styles.group,{backgroundColor:t.surface,borderColor:t.line}]}>
+      {selected==='appearance' ? <ChatBackgroundSettings query={query}/> : selected==='keybindings' ? <View style={[styles.group,{backgroundColor:t.surface,borderColor:t.line}]}>
         {KEYBINDINGS.filter(row=>matches(row.command+' '+row.keys)).map(row=><View key={row.command}
           style={[styles.detailRow,{borderColor:t.line}]}>
           <View style={{flex:1}}><Text style={{color:t.text,fontSize:14}}>{row.command}</Text>
@@ -71,10 +72,10 @@ export function SettingsScreen() {
         </View>)}
       </View>}
       {selected==='archive' && <Text style={[styles.description,{color:t.secondaryText}]}>No archived projects or conversations in this preview.</Text>}
-      {query && !rows.length && selected!=='keybindings' && selected!=='skills' && selected!=='providers' &&
+      {query && !rows.length && selected!=='appearance' && selected!=='keybindings' && selected!=='skills' && selected!=='providers' &&
         <Text style={[styles.description,{color:t.secondaryText}]}>No settings match your search.</Text>}
     </>}
-    <Text style={[styles.note,{color:t.tertiaryText}]}>Desktop settings catalog · Preview only. Host-managed settings and desktop shortcuts are shown for reference, not applied on this phone.</Text>
+    <Text style={[styles.note,{color:t.tertiaryText}]}>{selected==='appearance'?'Background images and preferences are saved on this phone. Effects are mobile renditions of the desktop choices.':'Desktop settings catalog · Preview only. Host-managed settings and desktop shortcuts are shown for reference, not applied on this phone.'}</Text>
   </ScrollView>;
 }
 const styles=StyleSheet.create({

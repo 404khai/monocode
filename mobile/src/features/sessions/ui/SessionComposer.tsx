@@ -12,6 +12,7 @@ import { COMPOSER_ADD_ACTIONS, nextComposerMode, type ComposerMode } from '../mo
 type Props={prompt:string;onPromptChange:(text:string)=>void;modelIndex:number;onModelChange:(index:number)=>void;initialBranch?:string;workspaceLabel?:string;
   worktree:boolean;onWorktreeChange:(enabled:boolean)=>void;permissionIndex:number;onPermissionChange:(index:number)=>void;
   mode:ComposerMode;onModeChange:(mode:ComposerMode)=>void;
+  compact?:boolean;onSend?:()=>void;
   onFocus:()=>void;onBlur:()=>void;onUsage:()=>void;onTerminal:()=>void};
 export function SessionComposer(props:Props) {
   const t=useAppTheme();
@@ -36,7 +37,7 @@ export function SessionComposer(props:Props) {
       </View>
       <TextInput accessibilityLabel="Task prompt" multiline value={props.prompt} onChangeText={props.onPromptChange}
         onFocus={props.onFocus} onBlur={props.onBlur} placeholder="Ask, build, / for commands, @ for references…"
-        placeholderTextColor={t.tertiaryText} style={[styles.input,{color:t.text}]} textAlignVertical="top"/>
+        placeholderTextColor={t.tertiaryText} style={[styles.input,{color:t.text},props.compact&&{minHeight:48,maxHeight:120,paddingVertical:8}]} textAlignVertical="top"/>
       <View style={styles.controls}>
         <View style={styles.pickers}>
           <ComposerAddMenu mode={props.mode} onSelect={action=>{
@@ -46,8 +47,8 @@ export function SessionComposer(props:Props) {
           <ComposerMenu compact trailingShield provider={model.provider} label={model.label+' '+model.effort} accessibilityLabel="Model and reasoning effort, full access"
             width={Math.max(110,width-136)} choices={composerModels.map(m=>m.label+' · '+m.effort)} onSelect={props.onModelChange}/>
         </View>
-        <GlassIconButton square white symbol="arrow.up" label="Create preview session" disabled={!props.prompt.trim()}
-          onPress={()=>Alert.alert('Draft ready','Your task stays in this preview. Connect a host to start a real session.')}/>
+        <GlassIconButton square white symbol="arrow.up" label={props.onSend ? 'Add local preview message' : 'Create preview session'} disabled={!props.prompt.trim()}
+          onPress={props.onSend ?? (()=>Alert.alert('Draft ready','Your task stays in this preview. Connect a host to start a real session.'))}/>
       </View>
       {props.mode!=='build'&&<Text style={{color:t.secondaryText,fontSize:11,marginTop:8}}>{COMPOSER_ADD_ACTIONS.find(action=>action.id===props.mode)?.title} · Preview</Text>}
     </View>

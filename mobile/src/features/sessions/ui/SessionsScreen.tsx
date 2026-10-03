@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Alert, Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { sessionFixtures } from '@/fixtures/sessions';
 import { groupSessionsByWorkspace } from '../model/sessionHierarchy';
@@ -9,6 +9,9 @@ import { spacing, typography } from '@/shared/theme/theme';
 import { AppSymbol } from '@/shared/ui/AppSymbol';
 import { ProviderIcon } from '@/shared/ui/ProviderIcon';
 import { PacmanGame } from '@/features/arcade/ui/PacmanGame';
+import { ChatBackground } from '@/features/settings/ui/ChatBackground';
+import { useChatBackground } from '@/features/settings/data/chatBackgroundStore';
+import { HERO_BACKGROUND_HEIGHT } from '@/shared/ui/backgroundGeometry';
 import type { SessionFilter } from './SessionToolbar';
 import { ProjectMascot } from '@/features/projects/ui/ProjectMascot';
 import { InboxSheet } from './InboxSheet';
@@ -20,7 +23,7 @@ function SessionRow({session:s,compact=false,selected=false,onSelect}: {session:
   const working=s.state==='working';
   const status=working ? 'Working' : s.state==='needs-input' ? 'Needs input' : s.updatedLabel;
   return <Pressable accessibilityLabel={s.title+', '+status}
-    onPress={()=>{onSelect();Alert.alert(s.title,'Mock session · '+s.project+' / '+s.branch);}}
+    onPress={onSelect}
     style={({pressed})=>[styles.row,{opacity:pressed ? 0.55 : 1,paddingHorizontal:compact ? 12 : 2,
       minHeight:compact ? 78 : 100,marginHorizontal:compact ? 4 : 0,borderRadius:compact ? 9 : 0,
       backgroundColor:compact&&selected ? t.elevated : 'transparent'}]}>
@@ -46,6 +49,7 @@ function SessionRow({session:s,compact=false,selected=false,onSelect}: {session:
 export function SessionsScreen({searchEnabled=false}:{searchEnabled?:boolean}) {
   const t=useAppTheme();
   const params=useLocalSearchParams<{search?:string}>();
+  const background=useChatBackground();
   const [query,setQuery]=useState('');
   const [filter,setFilter]=useState<SessionFilter>('all');
   const [inboxOpen,setInboxOpen]=useState(false);
@@ -58,12 +62,16 @@ export function SessionsScreen({searchEnabled=false}:{searchEnabled?:boolean}) {
   const projects=groupSessionsByWorkspace(sessions);
   const narrowed=!!query.trim()||filter!=='all';
   const toggle=(id:string)=>setCollapsed(value=>({...value,[id]:!value[id]}));
+  const openThread=(sessionId:string)=>{
+    setSelectedSessionId(sessionId);
+    router.push({pathname:searchEnabled ? '/search/thread/[sessionId]' : '/thread/[sessionId]',params:{sessionId}});
+  };
   return <>
     <Stack.Screen options={{title:searchEnabled ? 'Search' : 'Sessions'}}/>
     <Stack.Toolbar placement="right">
-      <Stack.Toolbar.Button icon="tray" accessibilityLabel="Inbox" separateBackground onPress={()=>setInboxOpen(true)}/>
+      <Stack.Toolbar.Button icon="tray" tintColor="#FFFFFF" accessibilityLabel="Inbox" separateBackground onPress={()=>setInboxOpen(true)}/>
       <Stack.Toolbar.Spacer width={12}/>
-      <Stack.Toolbar.Menu icon="line.3.horizontal.decrease.circle" accessibilityLabel="Filter sessions" separateBackground>
+      <Stack.Toolbar.Menu icon="line.3.horizontal.decrease.circle" tintColor="#FFFFFF" accessibilityLabel="Filter sessions" separateBackground>
         <Stack.Toolbar.MenuAction icon="rectangle.stack" isOn={filter==='all'} onPress={()=>setFilter('all')}>All sessions</Stack.Toolbar.MenuAction>
         <Stack.Toolbar.MenuAction icon="bolt" isOn={filter==='working'} onPress={()=>setFilter('working')}>Working</Stack.Toolbar.MenuAction>
         <Stack.Toolbar.MenuAction icon="hand.raised" isOn={filter==='needs-input'} onPress={()=>setFilter('needs-input')}>Needs input</Stack.Toolbar.MenuAction>
@@ -76,8 +84,8 @@ export function SessionsScreen({searchEnabled=false}:{searchEnabled?:boolean}) {
       contentContainerStyle={{paddingTop:spacing.sm,paddingHorizontal:spacing.page,paddingBottom:110}}>
       {/* Cancel content scrolling natively: the arcade stays pinned to the viewport,
           while this ScrollView remains the first native child for title/edge tracking. */}
-      <Animated.View pointerEvents="none" style={{position:'absolute',top:0,left:0,right:0,transform:[{translateY:scrollOffset}]}}>
-        <PacmanGame opacity={0.28} fadeBottom/>
+      <Animated.View pointerEvents="none" style={{position:'absolute',top:0,left:0,right:0,height:HERO_BACKGROUND_HEIGHT,transform:[{translateY:scrollOffset}]}}>
+        {background.imageUri?<ChatBackground empty/>:<PacmanGame opacity={0.28} fadeBottom/>}
       </Animated.View>
       {(searchEnabled || params.search==='1') && <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
         <TextInput autoFocus placeholder="Search sessions" placeholderTextColor={t.tertiaryText}
@@ -107,7 +115,7 @@ export function SessionsScreen({searchEnabled=false}:{searchEnabled?:boolean}) {
                 <Text style={{color:t.tertiaryText,fontSize:13}}>{group.sessions.length}</Text>
               </Pressable>
               {(narrowed||!collapsed[group.id]) && <>
-                {group.sessions.map(s=><SessionRow key={s.id} session={s} compact selected={selectedSessionId===s.id} onSelect={()=>setSelectedSessionId(s.id)}/>)}
+                {group.sessions.map(s=><SessionRow key={s.id} session={s} compact selected={selectedSessionId===s.id} onSelect={()=>openThread(s.id)}/>)}
                 <Pressable accessibilityRole="button" accessibilityLabel={'New session in '+group.name}
                   onPress={()=>setNewSessionContext({project:project.name,branch:group.sessions[0].branch,
                     worktree:workspace.workspace.kind==='worktree',group:group.name})}
@@ -127,10 +135,10 @@ export function SessionsScreen({searchEnabled=false}:{searchEnabled?:boolean}) {
               <Text style={{color:t.tertiaryText,fontSize:13}}>{project.workspaces.reduce((count,workspace)=>count+workspace.pinned.length,0)}</Text>
             </Pressable>
             {(narrowed||!collapsed['pinned:'+project.id]) && project.workspaces.flatMap(workspace=>workspace.pinned).map(s=>
-              <SessionRow key={s.id} session={s} compact selected={selectedSessionId===s.id} onSelect={()=>setSelectedSessionId(s.id)}/>)}
+              <SessionRow key={s.id} session={s} compact selected={selectedSessionId===s.id} onSelect={()=>openThread(s.id)}/>)}
           </View>}
           {project.workspaces.flatMap(workspace=>workspace.sessions).map(s=>
-            <SessionRow key={s.id} session={s} selected={selectedSessionId===s.id} onSelect={()=>setSelectedSessionId(s.id)}/>)}
+            <SessionRow key={s.id} session={s} selected={selectedSessionId===s.id} onSelect={()=>openThread(s.id)}/>)}
         </>}
       </View>)}
       {!sessions.length && <Text style={{color:t.secondaryText,paddingVertical:24}}>No sessions match your search.</Text>}

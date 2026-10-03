@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { useAppTheme } from '@/shared/theme/useAppTheme';
@@ -6,17 +6,18 @@ import { NativeSheet } from '@/shared/ui/NativeSheet';
 import { GlassIconButton } from '@/shared/ui/GlassIconButton';
 import { ProjectMascot } from '@/features/projects/ui/ProjectMascot';
 import { noteFixtures } from '@/fixtures/productivity';
+import { addNote, getNotes, subscribeNotes, updateNote } from '../model/noteStore';
 export function NotesScreen() {
   const t=useAppTheme();
-  const [notes,setNotes]=useState(noteFixtures);
+  const notes=useSyncExternalStore(subscribeNotes,getNotes,getNotes);
   const [query,setQuery]=useState('');
   const [selected,setSelected]=useState<string>();
   const note=notes.find(item=>item.id===selected);
   const filtered=notes.filter(item=>(item.title+' '+item.body+' '+item.project+' '+item.tags.join(' ')).toLowerCase().includes(query.toLowerCase()));
-  const update=(patch:Partial<typeof noteFixtures[number]>)=>setNotes(items=>items.map(item=>item.id===selected ? {...item,...patch,updated:'Just now'} : item));
+  const update=(patch:Partial<typeof noteFixtures[number]>)=>{if(selected)updateNote(selected,patch);};
   return <>
     <Stack.Toolbar placement="right"><Stack.Toolbar.Button icon="plus" accessibilityLabel="New preview note" onPress={()=>{
-      const id='note-'+Date.now();setNotes(items=>[{id,title:'Untitled note',project:'monocode',updated:'Just now',tags:[],body:''},...items]);setSelected(id);
+      setSelected(addNote('monocode'));
     }}/></Stack.Toolbar>
     <ScrollView style={{flex:1,backgroundColor:t.canvas}} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal:20,paddingBottom:30}}>
       <TextInput accessibilityLabel="Search notes" placeholder="Search notes" placeholderTextColor={t.tertiaryText} value={query} onChangeText={setQuery} style={{height:44,color:t.text,fontSize:15,marginBottom:12}}/>

@@ -13,10 +13,13 @@ import { ProjectPickerSheet } from '@/features/projects/ui/ProjectPickerSheet';
 import { projectFixtures } from '@/fixtures/projects';
 import { AppSymbol } from '@/shared/ui/AppSymbol';
 import type { ComposerMode } from '../model/composerAdd';
+import { ChatBackground } from '@/features/settings/ui/ChatBackground';
+import { useChatBackground } from '@/features/settings/data/chatBackgroundStore';
 
 export type NewSessionContext={project:string;branch:string;worktree:boolean;group?:string};
 export function NewSessionSheet({visible,onClose,context,initialPrompt}:{visible:boolean;onClose:()=>void;context?:NewSessionContext;initialPrompt?:string}) {
   const t=useAppTheme();
+  const background=useChatBackground();
   // Draft and configuration outlive the native sheet's presented-content subtree.
   const [prompt,setPrompt]=useState('');
   const [worktree,setWorktree]=useState(false);
@@ -31,7 +34,7 @@ export function NewSessionSheet({visible,onClose,context,initialPrompt}:{visible
   const project=projectFixtures.find(item=>item.id===selectedProject);
   const activeContext=context?.project===selectedProject ? context : undefined;
   const model=composerModels[modelIndex];
-  const heroHeight=editing ? 280 : 440;
+  const heroHeight=editing ? 400 : 400;
   const questionStyle=[styles.question,{color:t.text,fontSize:editing ? 26 : 30,lineHeight:editing ? 32 : 36}];
   useEffect(()=>{if(!visible){setUsageOpen(false);setTerminalOpen(false);setProjectPickerOpen(false);setEditing(false);}},[visible]);
   useEffect(()=>{if(visible&&context){setWorktree(false);setSelectedProject(context.project);}},[visible,context]);
@@ -40,14 +43,14 @@ export function NewSessionSheet({visible,onClose,context,initialPrompt}:{visible
     <KeyboardAvoidingView style={{flex:1,backgroundColor:t.canvas}} behavior={Platform.OS==='ios' ? 'padding' : undefined}>
       <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.content}>
         <View style={[styles.hero,{minHeight:heroHeight}]}>
-          <View style={StyleSheet.absoluteFill}><PacmanGame height={heroHeight} opacity={0.24} fadeBottom/></View>
+          <View style={StyleSheet.absoluteFill}>{background.imageUri?<ChatBackground empty height={heroHeight}/>:<PacmanGame height={heroHeight} opacity={0.24} fadeBottom/>}</View>
           <View style={styles.header}>
             <GlassIconButton symbol="xmark" label="Close new session" onPress={onClose}/>
             <Text accessibilityRole="header" style={[styles.title,{color:t.text}]}>New Session</Text>
             <View style={{width:44}}/>
           </View>
           <View style={[styles.welcome,{paddingBottom:editing ? 20 : 32}]}>
-            <ProviderIcon provider={model.provider} color={t.text} size={editing ? 36 : 46}/>
+            <ProviderIcon provider={model.provider} color={t.text} size={editing ? 36 : 50}/>
             <View style={{alignItems:'center'}}>
               <Text style={questionStyle}>What should we work on</Text>
               <View style={{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:6}}>

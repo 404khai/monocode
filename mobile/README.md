@@ -8,6 +8,8 @@ The Expo SDK 57 runtime uses Expo Router native liquid-glass tabs, Expo UI Swift
 
 Inbox now previews GitHub issues with search, filters, colored labels, issue details, quoted comments, and agent-draft actions. Notes and Automations have native tabs: notes are editable in memory, while automation schedules are read-only samples. GitHub comments, provider connections, and automation execution require a connected host. User-added sessions and artwork are preserved.
 
+Thread taps open a chat preview with expandable command/file activity and a fixed bottom composer. The glass down-arrow appears only when more transcript content is below the visible area. Drafts and explicitly unsent preview messages survive back navigation in memory; no agent runs or commands are executed.
+
 ## Run locally
 
 ```sh
@@ -35,6 +37,12 @@ npm run ios -- --device E5FF3AAA-2A48-428E-875B-6A7C1202572A
 Expo UI's SwiftUI controls require this development build and are not available in Expo Go. Static checking is available through `npm run typecheck`; `npm run test:models` checks the ported Pacman engine at phone-sized grids and the settings catalog.
 
 Read [AGENTS.md](./AGENTS.md) before working here.
+
+Appearance contains only local chat-background controls: choose/change/delete a photo, six desktop-named effects, empty-only/all-session scope, and separate visibility sliders. Images are copied into app storage; deleting a background never deletes the original photo. Images replace Pacman in the session sheet and sessions list, and appear in thread chats when enabled for all sessions. Threads otherwise have a plain background. Working threads use desktop runner physics and project sprites above the composer. Message Copy uses the clipboard; Save to Notes creates an in-memory note. Handoff and second-opinion controls prepare drafts only; expandable command/file activity is sample data, not executed.
+
+After pulling these changes, rebuild the native app for the new photo-picker, filesystem, and clipboard modules: `npx expo prebuild --platform ios`, then use the iOS launch command above. Reloading Metro alone does not add native modules.
+
+If an older development build is installed, optional native modules are checked before loading their SDKs. Screens remain usable; unavailable photo, storage, and clipboard actions explain the required rebuild instead of crashing route imports. “Missing default export” warnings alongside native-module errors indicate failed route evaluation, not missing screen exports.
 
 ## Layout
 

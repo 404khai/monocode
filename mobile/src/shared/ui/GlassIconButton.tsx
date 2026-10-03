@@ -1,7 +1,7 @@
 import { Pressable } from 'react-native';
 import { AppSymbol } from './AppSymbol';
 import { useAppTheme } from '@/shared/theme/useAppTheme';
-type Props={symbol:'xmark'|'plus'|'arrow.up'|'arrow.clockwise';label:string;onPress:()=>void;disabled?:boolean;square?:boolean;white?:boolean};
+type Props={symbol:'xmark'|'plus'|'arrow.up'|'arrow.clockwise'|'chevron.down';label:string;onPress:()=>void;disabled?:boolean;square?:boolean;white?:boolean};
 export function GlassIconButton({symbol,label,onPress,disabled=false,square=false,white=false}:Props) {
   const t=useAppTheme();
   return <Pressable accessibilityLabel={label} disabled={disabled} onPress={onPress}

@@ -17,6 +17,7 @@ import { PROJECT_MASCOTS } from "../model/projectMascots";
 import type { ArcadeSprite, GridArcade } from "../model/gridArcade";
 import { useAppTheme } from "@/shared/theme/useAppTheme";
 import { ProviderIcon } from "@/shared/ui/ProviderIcon";
+import { HERO_BACKGROUND_HEIGHT, BACKGROUND_FADE_START } from '@/shared/ui/backgroundGeometry';
 
 const CELL = 6,
   PITCH = 7;
@@ -100,7 +101,7 @@ function Ghost({ sprite: s, color }: { sprite: ArcadeSprite; color: string }) {
 
 /** The desktop empty-session engine, drawn natively rather than through its DOM canvas. */
 export function PacmanGame({
-  height = 400,
+  height = HERO_BACKGROUND_HEIGHT,
   opacity = 0.2,
   fadeBottom = false,
 }: {
@@ -192,7 +193,7 @@ export function PacmanGame({
           <Defs>
             <LinearGradient id="arcadeFade" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor="white" stopOpacity={1} />
-              <Stop offset="0.45" stopColor="white" stopOpacity={1} />
+              <Stop offset={BACKGROUND_FADE_START} stopColor="white" stopOpacity={1} />
               <Stop offset="1" stopColor="white" stopOpacity={0} />
             </LinearGradient>
             <Mask id="arcadeMask" x={0} y={0} width={width} height={height}>
