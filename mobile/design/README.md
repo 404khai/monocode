@@ -29,7 +29,21 @@ Follow assets/ios/new_session.jpeg with a native SwiftUI BottomSheet, large dete
 
 On phones, keep the bottom composer controls to attachment, model/reasoning, and send; omit the extra access picker. The model menu fits its contents with an amber shield after the effort, and send uses white-tinted glass with a dark arrow. Below the composer, use the desktop compact usage strip and Terminal action. Refresh is a small plain icon immediately beside the usage summary, not another glass button. Fade the arcade to transparent at the bottom on both the sessions home and the new-session sheet. Usage opens a native sheet with account, 5-hour/weekly limits, remaining percentages, reset times, and banked resets. Terminal opens a read-only native sheet with monospaced sample output. These are fixture previews: refreshing usage, using resets, submitting sessions, and executing host commands require a connected host and must not be simulated as successful actions.
 
-## Settings
+## Inbox, Notes, and Automations
+
+The new-session welcome sits toward the bottom of a 440pt arcade hero with 30pt text. While typing, use a 280pt hero and 26pt text to retain keyboard room. Do not autofocus the prompt on presentation: the expanded welcome should stay visible until the user chooses to type.
+
+The composer plus opens a native SwiftUI Menu, following assets/reference/composer_add.png: Upload file, Plan mode, Operator, and Orchestrator v1 with semantic symbols and descriptions. Draft modes are mutually exclusive and can be toggled off; they survive closing the sheet and are labeled as preview. Upload and actual mode execution require a connected host. Keep the trigger a fixed 44pt square glass button, not a stretched text menu.
+
+The project name in the new-session question is a tappable project switcher. On iOS it opens a native sheet with SwiftUI search and List rows, selected-project checkmark, desktop pixel mascots, and secondary host parent paths, following assets/reference/project_picker.png. Keep the selected project first; search names and paths. Switching projects preserves the prompt while replacing branch context and removing an unrelated folder context. Current session projects—including user additions—remain available alongside reference fixtures. New project requires a host rather than creating a folder on the phone.
+
+Inbox follows assets/reference/inbox.png: GitHub connection header, compact search/filter/read/refresh controls, issue state/number/time, prominent title, project mascot/repository, and colored label chips. Bug is red and enhancement is blue; other labels retain validated repository hex colors, as on desktop. The fixture filter supports open, closed, bug, enhancement, unread, and text search. Read state is local to the preview; refresh and connection actions must not claim live access.
+
+Issue detail follows issue_comments.png, issue_comments2.png, and issue_tag.png: sticky issue header, status, author/timestamps, Send to agent/Ask/GitHub actions, label chips, description sections, bordered comment cards with quotes, and a comment draft. Agent actions prefill the existing native new-session sheet; comments are not posted. Fixture author identities and conversation content are explicit samples, not fetched GitHub data.
+
+Notes and Automations use native bottom tabs and large-title stacks. Notes provide searchable sample notes and an in-memory editor; edits are not persisted or synced. Automations show desktop-derived template names and schedule vocabulary as read-only samples, with no jobs running on the phone. Keep user-added session fixtures and artwork intact. The new-session accessory uses the same desktop-frame working pixel animation as thread rows.
+
+## Settings catalog
 
 Port the complete desktop settings navigation in its existing App, Agents, and Workspace groups: General, Connections, Appearance, Keybindings, Chat, Providers, MCP, Skills, Inbox, Archive, and Worktrees. The portable catalog includes all 44 indexed desktop settings and 46 shortcut reference rows, including platform-specific desktop entries. All host-managed controls are read-only references for now; do not imply desktop preferences or shortcuts apply on iOS. Preserve search, section descriptions, provider marks, and clear empty states.
 

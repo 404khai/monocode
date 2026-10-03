@@ -6,6 +6,8 @@ An iOS-first reimagining of MonoCode for phones, using React Native, Expo, TypeS
 
 The Expo SDK 57 runtime uses Expo Router native liquid-glass tabs, Expo UI SwiftUI bottom sheets, and native iOS symbols. The fixture-backed sessions home separates threads by project, with collapsible folders above pinned chats and ordinary threads. Workspace/worktree context stays in branch metadata rather than extra headings. It follows MonoCode desktop's grayscale/blue palette with a native collapsing navigation title and soft top scroll-edge effect. Project headers use desktop pixel mascots, threads show varied provider SVGs, and working indicators loop through the desktop spinner frames. The actual desktop Pacman engine animates the home and new-session sheet. Inbox and status filtering are in the toolbar, and Settings includes the complete desktop navigation and row catalog. The new-session composer adapts the desktop layout, with expanded usage and a read-only terminal preview underneath. See [the design language](./design/README.md). Host connectivity and session submission remain preview-only.
 
+Inbox now previews GitHub issues with search, filters, colored labels, issue details, quoted comments, and agent-draft actions. Notes and Automations have native tabs: notes are editable in memory, while automation schedules are read-only samples. GitHub comments, provider connections, and automation execution require a connected host. User-added sessions and artwork are preserved.
+
 ## Run locally
 
 ```sh

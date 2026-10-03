@@ -101,10 +101,10 @@ try {
   assert.equal(mobileWorkspace.groups[0].name,'Mobile');
   assert.equal(mobileWorkspace.groups[0].sessions.length,2);
   const monocode=hierarchy.find(project=>project.id==='monocode');
-  assert.equal(monocode.count,3);
+  assert.equal(monocode.count,sessionFixtures.filter(session=>session.project==='monocode').length);
   assert.equal(monocode.workspaces.flatMap(workspace=>workspace.groups).length,1);
   assert.equal(monocode.workspaces.flatMap(workspace=>workspace.pinned).length,1);
-  assert.equal(monocode.workspaces.flatMap(workspace=>workspace.sessions).length,0);
+  assert.equal(monocode.workspaces.flatMap(workspace=>workspace.sessions).length,sessionFixtures.filter(session=>session.project==='monocode'&&!session.threadGroup&&!session.pinned).length);
   for(const project of hierarchy.filter(project=>project.id!=='monocode')) {
     assert.ok(project.count>=1&&project.count<=2);
     assert.equal(project.workspaces.flatMap(workspace=>workspace.groups).length,0);
@@ -139,6 +139,41 @@ try {
   assert.equal(composer.usageFixture.bankedResets,2);
   assert.ok(composer.terminalFixture.some(line=>line.includes('not executed')));
   console.log('Composer choices, usage windows, banked resets, and terminal fixtures passed');
+  const inbox=load(path.join(root,'src/features/inbox/model/inbox.ts'));
+  const {inboxFixtures}=load(path.join(root,'src/fixtures/inbox.ts'));
+  assert.equal(new Set(inboxFixtures.map(issue=>issue.id)).size,inboxFixtures.length);
+  assert.equal(inbox.issueLabelColor({name:'bug',color:'000000'}),'#D73A4A');
+  assert.equal(inbox.issueLabelColor({name:'enhancement',color:'a2eeef'}),'#459BF7');
+  assert.equal(inbox.issueLabelColor({name:'documentation',color:'0075ca'}),'#0075ca');
+  assert.equal(inbox.issueLabelColor({name:'custom',color:'invalid'}),'#737373');
+  assert.ok(inbox.filterInbox(inboxFixtures,'','bug',[]).every(issue=>issue.labels.some(label=>label.name==='bug')));
+  assert.ok(inbox.filterInbox(inboxFixtures,'','closed',[]).every(issue=>issue.state==='closed'));
+  assert.equal(inbox.filterInbox(inboxFixtures,'612','all',[])[0].number,612);
+  assert.equal(inbox.filterInbox(inboxFixtures,'','unread',inboxFixtures.map(issue=>issue.id)).length,0);
+  assert.equal(inbox.filterInbox(inboxFixtures,'no matching issue','all',[]).length,0);
+  const comments=inboxFixtures.flatMap(issue=>issue.comments);
+  assert.equal(new Set(comments.map(comment=>comment.id)).size,comments.length);
+  assert.ok(comments.some(comment=>comment.quote));
+  const productivity=load(path.join(root,'src/fixtures/productivity.ts'));
+  assert.ok(productivity.noteFixtures.length>=2&&productivity.automationFixtures.length>=2);
+  console.log('Inbox labels, filters, read state, quoted comments, and productivity fixtures passed');
+  const {projectFixtures}=load(path.join(root,'src/fixtures/projects.ts'));
+  const {filterPickerProjects}=load(path.join(root,'src/features/projects/model/projectPicker.ts'));
+  assert.equal(new Set(projectFixtures.map(project=>project.id)).size,projectFixtures.length);
+  for(const session of sessionFixtures) assert.ok(projectFixtures.some(project=>project.id===session.project));
+  assert.equal(filterPickerProjects(projectFixtures,'','roadrunner')[0].id,'roadrunner');
+  assert.equal(filterPickerProjects(projectFixtures,'  ROAD  ','monocode')[0].id,'roadrunner');
+  assert.equal(filterPickerProjects(projectFixtures,'no matching project','monocode').length,0);
+  assert.equal(filterPickerProjects(projectFixtures,'~/Developer','monocode').length,projectFixtures.length);
+  for(const project of projectFixtures) assert.ok(project.branch&&project.parentPath);
+  console.log('Project picker search, selected ordering, and user-added project coverage passed');
+  const addMenu=load(path.join(root,'src/features/sessions/model/composerAdd.ts'));
+  assert.deepEqual(addMenu.COMPOSER_ADD_ACTIONS.map(action=>action.id),['upload','plan','operator','orchestrator']);
+  assert.equal(addMenu.nextComposerMode('build','plan'),'plan');
+  assert.equal(addMenu.nextComposerMode('plan','plan'),'build');
+  assert.equal(addMenu.nextComposerMode('plan','operator'),'operator');
+  assert.equal(addMenu.nextComposerMode('operator','orchestrator'),'orchestrator');
+  console.log('Composer add-menu actions and mutually exclusive draft modes passed');
 } finally {
   Math.random=random;
 }

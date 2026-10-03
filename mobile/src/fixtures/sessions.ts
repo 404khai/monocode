@@ -4,7 +4,7 @@ import type { SessionSummary } from '@/features/sessions/model/sessionSummary';
 export const sessionFixtures:SessionSummary[]=[
   {id:'session-ios-home',title:'Design iOS Session Homepage',project:'monocode',projectColor:projectColor('monocode'),
     branch:'feat/mobile-app',workspace:{id:'mobile',name:'Mobile app',kind:'worktree'},threadGroup:{id:'mobile-design',name:'Mobile'},
-    provider:'claude',model:'Claude Sonnet 5',state:'idle',updatedLabel:'1m'},
+    provider:'claude',model:'Claude Sonnet 5',state:'working',updatedLabel:'1m'},
   {id:'session-mobile-foundation',title:'Establish Monocode Mobile Foundation',project:'monocode',projectColor:projectColor('monocode'),
     branch:'feat/mobile-app',workspace:{id:'mobile',name:'Mobile app',kind:'worktree'},threadGroup:{id:'mobile-design',name:'Mobile'},
     provider:'codex',model:'GPT-6.1-Sol',state:'idle',updatedLabel:'12h 13m'},

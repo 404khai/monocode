@@ -15,6 +15,14 @@ export function AppNavigation() {
       <NativeTabs.Trigger.Label>Sessions</NativeTabs.Trigger.Label>
       <NativeTabs.Trigger.Icon sf={{default:'bubble.left.and.bubble.right',selected:'bubble.left.and.bubble.right.fill'}}/>
     </NativeTabs.Trigger>
+    <NativeTabs.Trigger name="notes">
+      <NativeTabs.Trigger.Label>Notes</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf="note.text"/>
+    </NativeTabs.Trigger>
+    <NativeTabs.Trigger name="automations">
+      <NativeTabs.Trigger.Label>Automations</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf={{default:'bolt',selected:'bolt.fill'}}/>
+    </NativeTabs.Trigger>
     <NativeTabs.Trigger name="settings">
       <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
       <NativeTabs.Trigger.Icon sf={{default:'gearshape',selected:'gearshape.fill'}}/>
@@ -23,7 +31,7 @@ export function AppNavigation() {
       <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
       <NativeTabs.Trigger.Icon sf="magnifyingglass"/>
     </NativeTabs.Trigger>
-    {pathname!=='/settings' && <NativeTabs.BottomAccessory>
+    {(pathname==='/'||pathname==='/search') && <NativeTabs.BottomAccessory>
       <NewSessionBar onPress={()=>setNewSessionOpen(true)}/>
     </NativeTabs.BottomAccessory>}
   </NativeTabs>

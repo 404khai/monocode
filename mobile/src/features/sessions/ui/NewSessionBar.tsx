@@ -3,6 +3,7 @@ import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { AppSymbol } from '@/shared/ui/AppSymbol';
 import { useAppTheme } from '@/shared/theme/useAppTheme';
 import { sessionFixtures } from '@/fixtures/sessions';
+import { WorkingPixels } from './WorkingPixels';
 export function NewSessionBar({onPress}:{onPress:()=>void}) {
   const t=useAppTheme();
   const placement=NativeTabs.BottomAccessory.usePlacement();
@@ -14,7 +15,7 @@ export function NewSessionBar({onPress}:{onPress:()=>void}) {
     </View>
     <Text style={{flex:1,color:t.text,fontSize:17,fontWeight:'600'}}>New session</Text>
     {placement!=='inline' && <>
-      <Text style={{color:t.accent,fontSize:20}}>⠇</Text>
+      <WorkingPixels/>
       <Text style={{color:t.secondaryText,fontSize:14}}>{sessionFixtures.filter(s=>s.state==='working').length} working</Text>
     </>}
   </Pressable>;

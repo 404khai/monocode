@@ -1,4 +1,4 @@
-import { Alert, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Keyboard, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { useEffect, useState } from 'react';
 import { ComposerMenu } from './ComposerMenu';
@@ -6,9 +6,12 @@ import { UsageStrip } from './UsageStrip';
 import { GlassIconButton } from '@/shared/ui/GlassIconButton';
 import { useAppTheme } from '@/shared/theme/useAppTheme';
 import { composerModels } from '@/fixtures/composer';
+import { ComposerAddMenu } from './ComposerAddMenu';
+import { COMPOSER_ADD_ACTIONS, nextComposerMode, type ComposerMode } from '../model/composerAdd';
 
 type Props={prompt:string;onPromptChange:(text:string)=>void;modelIndex:number;onModelChange:(index:number)=>void;initialBranch?:string;workspaceLabel?:string;
   worktree:boolean;onWorktreeChange:(enabled:boolean)=>void;permissionIndex:number;onPermissionChange:(index:number)=>void;
+  mode:ComposerMode;onModeChange:(mode:ComposerMode)=>void;
   onFocus:()=>void;onBlur:()=>void;onUsage:()=>void;onTerminal:()=>void};
 export function SessionComposer(props:Props) {
   const t=useAppTheme();
@@ -31,19 +34,22 @@ export function SessionComposer(props:Props) {
           <Svg width={22} height={22}><Circle cx={11} cy={11} r={8} fill="none" stroke={t.tertiaryText} strokeWidth={2}/></Svg>
         </View>
       </View>
-      <TextInput accessibilityLabel="Task prompt" autoFocus multiline value={props.prompt} onChangeText={props.onPromptChange}
+      <TextInput accessibilityLabel="Task prompt" multiline value={props.prompt} onChangeText={props.onPromptChange}
         onFocus={props.onFocus} onBlur={props.onBlur} placeholder="Ask, build, / for commands, @ for references…"
         placeholderTextColor={t.tertiaryText} style={[styles.input,{color:t.text}]} textAlignVertical="top"/>
       <View style={styles.controls}>
         <View style={styles.pickers}>
-          <GlassIconButton square symbol="plus" label="Add attachment"
-            onPress={()=>Alert.alert('Attachments','Attachments will be available with a connected host.')}/>
+          <ComposerAddMenu mode={props.mode} onSelect={action=>{
+            if(action==='upload'){Keyboard.dismiss();Alert.alert('Upload file','Connect a host to attach files or images to a session.');}
+            else props.onModeChange(nextComposerMode(props.mode,action));
+          }}/>
           <ComposerMenu compact trailingShield provider={model.provider} label={model.label+' '+model.effort} accessibilityLabel="Model and reasoning effort, full access"
             width={Math.max(110,width-136)} choices={composerModels.map(m=>m.label+' · '+m.effort)} onSelect={props.onModelChange}/>
         </View>
         <GlassIconButton square white symbol="arrow.up" label="Create preview session" disabled={!props.prompt.trim()}
           onPress={()=>Alert.alert('Draft ready','Your task stays in this preview. Connect a host to start a real session.')}/>
       </View>
+      {props.mode!=='build'&&<Text style={{color:t.secondaryText,fontSize:11,marginTop:8}}>{COMPOSER_ADD_ACTIONS.find(action=>action.id===props.mode)?.title} · Preview</Text>}
     </View>
     <UsageStrip provider={model.provider} onUsage={props.onUsage} onTerminal={props.onTerminal}/>
   </View>;
