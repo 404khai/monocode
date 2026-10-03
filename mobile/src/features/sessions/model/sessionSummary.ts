@@ -9,18 +9,14 @@ export type SessionSummary = {
   projectMascot?: string;
   projectColor: string;
   branch: string;
+  workspace: { id: string; name: string; kind: 'checkout' | 'worktree' };
+  threadGroup?: { id: string; name: string };
+  pinned?: boolean;
   model: string;
   provider: SessionProvider;
   state: SessionState;
   updatedLabel: string;
-  pinned?: boolean;
   linkedPullRequest?: number;
   additions?: number;
   deletions?: number;
-};
-
-export type SessionSection = {
-  id: 'pinned' | 'recent';
-  title: string;
-  sessions: SessionSummary[];
 };

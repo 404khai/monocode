@@ -83,6 +83,62 @@ try {
   const logos=JSON.parse(providerSource.match(/const logos = ([\s\S]*?);\nexport/)[1]);
   assert.equal(logos.codex.trim(),fs.readFileSync(path.join(root,'../src/assets/providers/codex.svg'),'utf8').trim());
   console.log('Project mascot assignments and original desktop Codex SVG passed');
+  const {sessionFixtures}=load(path.join(root,'src/fixtures/sessions.ts'));
+  const {groupSessionsByWorkspace}=load(path.join(root,'src/features/sessions/model/sessionHierarchy.ts'));
+  const hierarchy=groupSessionsByWorkspace(sessionFixtures);
+  assert.equal(hierarchy.length,4);
+  assert.equal(hierarchy.reduce((total,project)=>total+project.count,0),sessionFixtures.length);
+  const groupedIds=[];
+  for(const project of hierarchy) for(const workspace of project.workspaces) {
+    for(const session of [...workspace.sessions,...workspace.pinned,...workspace.groups.flatMap(group=>group.sessions)]) {
+      assert.equal(session.project,project.id);
+      assert.equal(session.workspace.id,workspace.workspace.id);
+      groupedIds.push(session.id);
+    }
+  }
+  assert.equal(new Set(groupedIds).size,sessionFixtures.length);
+  const mobileWorkspace=hierarchy.find(project=>project.id==='monocode').workspaces.find(workspace=>workspace.workspace.id==='mobile');
+  assert.equal(mobileWorkspace.groups[0].name,'Mobile');
+  assert.equal(mobileWorkspace.groups[0].sessions.length,2);
+  const monocode=hierarchy.find(project=>project.id==='monocode');
+  assert.equal(monocode.count,3);
+  assert.equal(monocode.workspaces.flatMap(workspace=>workspace.groups).length,1);
+  assert.equal(monocode.workspaces.flatMap(workspace=>workspace.pinned).length,1);
+  assert.equal(monocode.workspaces.flatMap(workspace=>workspace.sessions).length,0);
+  for(const project of hierarchy.filter(project=>project.id!=='monocode')) {
+    assert.ok(project.count>=1&&project.count<=2);
+    assert.equal(project.workspaces.flatMap(workspace=>workspace.groups).length,0);
+    assert.equal(project.workspaces.flatMap(workspace=>workspace.pinned).length,0);
+  }
+  assert.ok(new Set(sessionFixtures.map(session=>session.provider)).size>=4);
+  const sample=sessionFixtures[0];
+  const collisions=groupSessionsByWorkspace([
+    {...sample,id:'a',workspace:{id:'same',name:'Same',kind:'worktree'},threadGroup:{id:'group',name:'Same'}},
+    {...sample,id:'b',workspace:{id:'other',name:'Same',kind:'worktree'},threadGroup:{id:'group',name:'Same'}},
+    {...sample,id:'c',project:'other',workspace:{id:'same',name:'Same',kind:'worktree'},threadGroup:{id:'group',name:'Same'}},
+  ]);
+  assert.equal(new Set(collisions.flatMap(project=>project.workspaces.flatMap(workspace=>workspace.groups.map(group=>group.id)))).size,3);
+  assert.deepEqual(groupSessionsByWorkspace([]),[]);
+  const pixels=load(path.join(root,'src/features/sessions/model/workingPixels.ts'));
+  const desktopSpinner=fs.readFileSync(path.join(root,'../src/features/sessions/ui/TerminalSpinner.tsx'),'utf8');
+  const desktopFrames=[...desktopSpinner.match(/const FRAMES = \[([\s\S]*?)\]/)[1].matchAll(/"([^"]+)"/g)].map(match=>match[1]);
+  assert.deepEqual(pixels.WORKING_FRAMES,desktopFrames);
+  assert.equal(pixels.WORKING_FRAME_MS,80);
+  assert.deepEqual(pixels.workingCells(0),pixels.workingCells(10));
+  for(let frame=0;frame<10;frame++) assert.ok(pixels.workingCells(frame).length>=2);
+  console.log('Session project/workspace/group boundaries and desktop working animation passed');
+  const composer=load(path.join(root,'src/fixtures/composer.ts'));
+  assert.equal(composer.composerModels[0].provider,'codex');
+  assert.ok(composer.composerModels.some(model=>model.effort==='Medium'));
+  assert.ok(composer.composerModels.some(model=>model.effort==='High'));
+  for(const window of composer.usageFixture.windows) {
+    assert.ok(window.used>=0&&window.used<=100);
+    assert.ok(window.reset.length>0&&window.compactReset.length>0);
+  }
+  assert.deepEqual(composer.usageFixture.windows.map(window=>100-window.used),[95,89]);
+  assert.equal(composer.usageFixture.bankedResets,2);
+  assert.ok(composer.terminalFixture.some(line=>line.includes('not executed')));
+  console.log('Composer choices, usage windows, banked resets, and terminal fixtures passed');
 } finally {
   Math.random=random;
 }

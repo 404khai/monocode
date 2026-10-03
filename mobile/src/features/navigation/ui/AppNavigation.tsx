@@ -11,7 +11,7 @@ export function AppNavigation() {
   // Accessory has regular/inline copies: keep the draft and presentation state outside both.
   const [newSessionOpen,setNewSessionOpen]=useState(false);
   return <><StatusBar style="auto"/><NativeTabs tintColor={t.text}>
-    <NativeTabs.Trigger name="index">
+    <NativeTabs.Trigger name="(sessions)">
       <NativeTabs.Trigger.Label>Sessions</NativeTabs.Trigger.Label>
       <NativeTabs.Trigger.Icon sf={{default:'bubble.left.and.bubble.right',selected:'bubble.left.and.bubble.right.fill'}}/>
     </NativeTabs.Trigger>
