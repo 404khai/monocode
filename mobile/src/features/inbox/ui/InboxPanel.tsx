@@ -31,7 +31,7 @@ export function InboxPanel({visible,onClose}:{visible:boolean;onClose:()=>void})
     {issue ? <IssueDetail key={issue.id} issue={issue} onAgent={setAgentDraft}/> : <>
       <View style={[styles.connection,{borderColor:t.line}]}>
         <View style={[styles.github,{backgroundColor:t.elevated}]}><GitHubMark size={20} color={t.text}/><Text style={{color:t.text,fontSize:15,fontWeight:'600'}}>GitHub</Text></View>
-        <Pressable accessibilityRole="button" onPress={()=>Alert.alert('Add connection','Connect GitHub, GitLab, Linear, Jira, or Azure DevOps through a MonoCode host. This screen uses sample issues.')} style={[styles.github,{flex:1}]}>
+        <Pressable accessibilityRole="button" onPress={()=>Alert.alert('Add connection','Connect GitHub, GitLab, Linear, Jira, or Azure DevOps through a MonoCode host. This screen uses sample issues.')} style={styles.github}>
           <AppSymbol name="plus" size={15} tintColor={t.secondaryText}/><Text style={{color:t.secondaryText,fontSize:13}}>Add connection</Text></Pressable>
       </View>
       <View style={[styles.search,{borderColor:t.line}]}>
@@ -65,7 +65,7 @@ export function InboxPanel({visible,onClose}:{visible:boolean;onClose:()=>void})
 }
 const styles=StyleSheet.create({
   heading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20,paddingTop:16,paddingBottom:12},
-  connection:{flexDirection:'row',gap:8,paddingHorizontal:16,paddingBottom:12,borderBottomWidth:StyleSheet.hairlineWidth},github:{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,minHeight:44,borderRadius:10,paddingHorizontal:16},
+  connection:{flexDirection:'row',gap:8,paddingHorizontal:16,paddingBottom:12,borderBottomWidth:StyleSheet.hairlineWidth},github:{flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,minHeight:44,borderRadius:10,paddingHorizontal:16},
   search:{flexDirection:'row',alignItems:'center',paddingHorizontal:16,gap:5,borderBottomWidth:StyleSheet.hairlineWidth},icon:{width:44,minHeight:44,alignItems:'center',justifyContent:'center'},
   row:{paddingVertical:18},line:{flexDirection:'row',alignItems:'center',gap:7},
 });
