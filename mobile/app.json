@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "MonoCode",
+    "slug": "monocode-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "monocode",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/AppIcon.icon",
+      "supportsTablet": false,
+      "bundleIdentifier": "app.monocode.mobile"
+    },
+    "android": {
+      "package": "app.monocode.mobile",
+      "predictiveBackGestureEnabled": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
