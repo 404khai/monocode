@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { router, Stack } from 'expo-router';
-import { Host, Box, Column, Row, LazyColumn, ListItem, Text, TextButton, IconButton, FloatingActionButton,
+import { Host, Box, Column, Row, LazyColumn, Text, HorizontalDivider, IconButton, FloatingActionButton,
   ExtendedFloatingActionButton, DropdownMenu, DropdownMenuItem, OutlinedTextField, RNHostView } from '@expo/ui/jetpack-compose';
-import { align, background as composeBackground, clip, Shapes, clickable, fillMaxSize, fillMaxWidth, padding, paddingAll, semantics, weight } from '@expo/ui/jetpack-compose/modifiers';
+import { align, background as composeBackground, clip, Shapes, clickable, fillMaxSize, fillMaxWidth, padding, paddingAll, semantics, weight, defaultMinSize } from '@expo/ui/jetpack-compose/modifiers';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { spacing } from '@/shared/theme/theme';
+import { spacing, typography } from '@/shared/theme/theme';
 import { sessionFixtures } from '@/fixtures/sessions';
 import { groupSessionsByWorkspace } from '../model/sessionHierarchy';
 import type { SessionSummary } from '../model/sessionSummary';
@@ -25,39 +25,56 @@ const filters: { value: SessionFilter; label: string }[] = [
   { value: 'all', label: 'All' }, { value: 'working', label: 'Working' },
   { value: 'needs-input', label: 'Needs input' }, { value: 'done', label: 'Completed' },
 ];
-function SessionRow({ session, onSelect, compact = false }: { session: SessionSummary; onSelect: () => void; compact?: boolean }) {
+function SessionRow({ session, onSelect, compact = false, selected = false }: {
+  session: SessionSummary; onSelect: () => void; compact?: boolean; selected?: boolean;
+}) {
   const t = useAppTheme();
-  const status = session.state === 'working' ? 'Working' : session.state === 'needs-input' ? 'Needs input' : session.updatedLabel;
-  return <ListItem colors={{ containerColor: compact ? t.surface : 'transparent', contentColor: t.text, supportingContentColor: t.secondaryText }}
-    modifiers={[fillMaxWidth(), clickable(onSelect), semantics({ contentDescription: `${session.title}, ${status}, ${session.branch}` })]}>
-    <ListItem.LeadingContent><RNHostView matchContents>
-      <View style={{ width: 24, alignItems: 'center' }}>{session.pinned
-        ? <AppSymbol name="pin" size={20} tintColor={t.secondaryText}/>
-        : <ProviderIcon provider={session.provider} size={22} color={t.text}/>}</View>
-    </RNHostView></ListItem.LeadingContent>
-    <ListItem.OverlineContent><Text color={t.secondaryText} style={{ typography: 'labelSmall' }}>{session.model}</Text></ListItem.OverlineContent>
-    <ListItem.HeadlineContent><Text color={t.text} maxLines={2} overflow="ellipsis" style={{ typography: 'titleMedium' }}>{session.title}</Text></ListItem.HeadlineContent>
-    <ListItem.SupportingContent><Text color={t.secondaryText} maxLines={1} overflow="ellipsis" style={{ typography: 'bodySmall' }}>
-      {session.branch + (session.linkedPullRequest ? ` · ${session.linkedPullRequest}` : '')}
-    </Text></ListItem.SupportingContent>
-    <ListItem.TrailingContent><Column horizontalAlignment="end" verticalArrangement={{ spacedBy: 6 }}>
-      {session.state === 'working' && <RNHostView matchContents><WorkingPixels/></RNHostView>}
-      <Text color={session.state === 'working' ? t.accent : session.state === 'needs-input' ? '#B77A20' : t.secondaryText}
-        style={{ typography: 'labelSmall' }}>{status}</Text>
-    </Column></ListItem.TrailingContent>
-  </ListItem>;
+  const working = session.state === 'working';
+  const status = working ? 'Working' : session.state === 'needs-input' ? 'Needs input' : session.updatedLabel;
+  return <Column modifiers={[fillMaxWidth(), padding(compact ? 4 : 0, 0, compact ? 4 : 0, 0),
+    ...(compact ? [clip(Shapes.RoundedCorner(9))] : []),
+    composeBackground(compact && selected ? t.elevated : 'transparent'), clickable(onSelect),
+    semantics({ contentDescription: `${session.title}, ${status}, ${session.branch}` }),
+    defaultMinSize({ minHeight: compact ? 78 : 100 }), padding(compact ? 12 : 2, 14, compact ? 12 : 2, 14)]}>
+    <Row modifiers={[fillMaxWidth()]} verticalAlignment="center" horizontalArrangement={{ spacedBy: 7 }}>
+      {session.pinned ? <RNHostView matchContents><AppSymbol name="pin" size={15} tintColor={t.secondaryText}/></RNHostView>
+        : !compact && <RNHostView matchContents><ProviderIcon provider={session.provider} size={16} color={t.text}/></RNHostView>}
+      <Text modifiers={[weight(1)]} color={compact ? t.text : t.secondaryText} maxLines={compact ? 2 : 1} overflow="ellipsis"
+        style={compact ? { fontSize: typography.session, fontWeight: '600', letterSpacing: -0.3 } : { fontSize: 12 }}>
+        {compact ? session.title : session.model}
+      </Text>
+      <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: 4 }}>
+        {working && <RNHostView matchContents><WorkingPixels/></RNHostView>}
+        <Text color={working ? t.accent : session.state === 'needs-input' ? '#B77A20' : t.secondaryText} style={{ fontSize: 12 }}>{status}</Text>
+      </Row>
+    </Row>
+    {!compact && <Text modifiers={[padding(0, 7, 0, 0)]} color={t.text} maxLines={2} overflow="ellipsis"
+      style={{ fontSize: typography.session, fontWeight: '600', letterSpacing: -0.3 }}>{session.title}</Text>}
+    <Row modifiers={[fillMaxWidth(), padding(0, 7, 0, 0)]} verticalAlignment="center" horizontalArrangement={{ spacedBy: 5 }}>
+      <RNHostView matchContents><AppSymbol name="point.topleft.down.curvedto.point.bottomright.up" size={12} tintColor={t.tertiaryText}/></RNHostView>
+      <Text modifiers={[weight(1)]} color={t.tertiaryText} maxLines={1} overflow="ellipsis" style={{ fontSize: 12 }}>{session.branch}</Text>
+      {!!session.linkedPullRequest && <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: 4 }}
+        modifiers={[clip(Shapes.RoundedCorner(4)), composeBackground(t.accentSoft), padding(5, 3, 5, 3)]}>
+        <RNHostView matchContents><AppSymbol name="arrow.triangle.pull" size={11} tintColor={t.accent}/></RNHostView>
+        <Text color={t.accent} style={{ fontSize: 11 }}>{session.linkedPullRequest}</Text>
+      </Row>}
+    </Row>
+  </Column>;
 }
-function FolderHeader({ label, count, expanded, onToggle }: { label: string; count: number; expanded: boolean; onToggle: () => void }) {
+function FolderHeader({ label, count, expanded, working = false, onToggle }: {
+  label: string; count: number; expanded: boolean; working?: boolean; onToggle: () => void;
+}) {
   const t = useAppTheme();
-  return <ListItem colors={{ containerColor: t.surface }} modifiers={[clickable(onToggle),
-    semantics({ contentDescription: `${label}, ${count} threads, ${expanded ? 'expanded' : 'collapsed'}` })]}>
-    <ListItem.LeadingContent><RNHostView matchContents><AppSymbol name={label === 'Pinned' ? 'pin' : 'folder'} tintColor={t.secondaryText}/></RNHostView></ListItem.LeadingContent>
-    <ListItem.HeadlineContent><Text color={t.text} style={{ typography: 'titleSmall' }}>{label}</Text></ListItem.HeadlineContent>
-    <ListItem.TrailingContent><Row horizontalArrangement={{ spacedBy: 10 }} verticalAlignment="center">
-      <Text color={t.secondaryText}>{count}</Text>
-      <RNHostView matchContents><AppSymbol name={expanded ? 'chevron.down' : 'chevron.right'} tintColor={t.secondaryText}/></RNHostView>
-    </Row></ListItem.TrailingContent>
-  </ListItem>;
+  return <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: 10 }}
+    modifiers={[fillMaxWidth(), clickable(onToggle),
+      semantics({ contentDescription: `${label}, ${count} threads, ${expanded ? 'expanded' : 'collapsed'}` }),
+      defaultMinSize({ minHeight: 48 }), padding(12, 0, 12, 0)]}>
+    <RNHostView matchContents><AppSymbol name={label === 'Pinned' ? 'pin' : expanded ? 'chevron.down' : 'folder'}
+      size={label === 'Pinned' ? 17 : 16} tintColor={t.text}/></RNHostView>
+    <Text modifiers={[weight(1)]} color={t.text} style={{ fontSize: 16, fontWeight: '600' }}>{label}</Text>
+    {working && <RNHostView matchContents><WorkingPixels/></RNHostView>}
+    <Text color={t.tertiaryText} style={{ fontSize: 13 }}>{count}</Text>
+  </Row>;
 }
 export function SessionsScreen({ searchEnabled = false }: { searchEnabled?: boolean }) {
   const t = useAppTheme();
@@ -66,6 +83,7 @@ export function SessionsScreen({ searchEnabled = false }: { searchEnabled?: bool
   const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<SessionFilter>('all');
+  const [selectedSessionId, setSelectedSessionId] = useState(sessionFixtures[0].id);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [inboxOpen, setInboxOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
@@ -77,11 +95,12 @@ export function SessionsScreen({ searchEnabled = false }: { searchEnabled?: bool
   const expanded = (id: string) => narrowed || !collapsed[id];
   const toggle = (id: string) => setCollapsed(value => ({ ...value, [id]: !value[id] }));
   const openThread = (sessionId: string) => {
+    setSelectedSessionId(sessionId);
     Keyboard.dismiss();
     router.push({ pathname: searchEnabled ? '/search/thread/[sessionId]' : '/thread/[sessionId]', params: { sessionId } });
   };
   const newSession = (next?: NewSessionContext) => { setContext(next); setNewSessionOpen(true); };
-  const row = (session: SessionSummary, compact = false) => <SessionRow key={session.id} session={session} compact={compact} onSelect={() => openThread(session.id)}/>;
+  const row = (session: SessionSummary, compact = false) => <SessionRow key={session.id} session={session} compact={compact} selected={selectedSessionId === session.id} onSelect={() => openThread(session.id)}/>;
   return <View style={{ flex: 1, backgroundColor: t.canvas }}>
     <Stack.Screen options={{ title: searchEnabled ? 'Search' : 'Sessions', headerShown: false }}/>
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -107,22 +126,30 @@ export function SessionsScreen({ searchEnabled = false }: { searchEnabled?: bool
             const pinned = project.workspaces.flatMap(workspace => workspace.pinned);
             const pinnedKey = 'pinned:' + project.id;
             return [
-              <ListItem key={projectKey} colors={{ containerColor: 'transparent' }} modifiers={[clickable(() => toggle(projectKey)),
-                semantics({ contentDescription: `${project.name}, ${project.count} threads, ${expanded(projectKey) ? 'expanded' : 'collapsed'}` })]}>
-                <ListItem.LeadingContent><RNHostView matchContents><ProjectMascot project={project.name} name={project.mascot} color={project.color}/></RNHostView></ListItem.LeadingContent>
-                <ListItem.HeadlineContent><Text color={t.text} style={{ typography: 'titleLarge' }}>{project.name}</Text></ListItem.HeadlineContent>
-                <ListItem.TrailingContent><Text color={t.secondaryText}>{project.count + (expanded(projectKey) ? ' ▾' : ' ▸')}</Text></ListItem.TrailingContent>
-              </ListItem>,
+              <Row key={projectKey} verticalAlignment="center" horizontalArrangement={{ spacedBy: 8 }}
+                modifiers={[fillMaxWidth(), padding(0, 5, 0, 0), clickable(() => toggle(projectKey)),
+                  semantics({ contentDescription: `${project.name}, ${project.count} threads, ${expanded(projectKey) ? 'expanded' : 'collapsed'}` }),
+                  defaultMinSize({ minHeight: 48 })]}>
+                <RNHostView matchContents><ProjectMascot project={project.name} name={project.mascot} color={project.color}/></RNHostView>
+                <Text modifiers={[weight(1)]} color={t.text} style={{ fontSize: 19, fontWeight: '600' }}>{project.name}</Text>
+                <Text color={t.tertiaryText} style={{ fontSize: 13 }}>{project.count}</Text>
+                <RNHostView matchContents><AppSymbol name={expanded(projectKey) ? 'chevron.down' : 'chevron.right'} size={16} tintColor={t.secondaryText}/></RNHostView>
+              </Row>,
               ...(expanded(projectKey) ? [
                 ...project.workspaces.flatMap(workspace => workspace.groups.map(group =>
                   <Column key={group.id} modifiers={[fillMaxWidth(), padding(0, 0, 0, 14), clip(Shapes.RoundedCorner(12)), composeBackground(t.surface)]}>
-                    <FolderHeader label={group.name} count={group.sessions.length} expanded={expanded(group.id)} onToggle={() => toggle(group.id)}/>
+                    <FolderHeader label={group.name} count={group.sessions.length} expanded={expanded(group.id)} working={group.sessions.some(session => session.state === 'working')} onToggle={() => toggle(group.id)}/>
                     {expanded(group.id) && <>
                       {group.sessions.map(session => row(session, true))}
-                      <TextButton modifiers={[fillMaxWidth()]} onClick={() => newSession({ project: project.name,
-                        branch: group.sessions[0].branch, worktree: workspace.workspace.kind === 'worktree', group: group.name })}>
-                        <Text color={t.accent}>+ New session in {group.name}</Text>
-                      </TextButton>
+                      <HorizontalDivider color={t.line} thickness={StyleSheet.hairlineWidth}/>
+                      <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: 8 }}
+                        modifiers={[fillMaxWidth(), clickable(() => newSession({ project: project.name,
+                          branch: group.sessions[0].branch, worktree: workspace.workspace.kind === 'worktree', group: group.name })),
+                          semantics({ contentDescription: 'New session in ' + group.name }),
+                          defaultMinSize({ minHeight: 46 }), padding(14, 0, 14, 0)]}>
+                        <RNHostView matchContents><AppSymbol name="plus" size={14} tintColor={t.secondaryText}/></RNHostView>
+                        <Text color={t.secondaryText} style={{ fontSize: 14, fontWeight: '500' }}>New session</Text>
+                      </Row>
                     </>}
                   </Column>
                 )),
