@@ -40,6 +40,14 @@ fn file_paths_from(pb: &objc2_app_kit::NSPasteboard) -> Vec<String> {
         .filter(|s| url::Url::parse(&s.to_string()).is_ok_and(|url| url.to_file_path().is_ok()))
         .filter_map(|s| NSURL::URLWithString(&s))
         .filter(|url| url.isFileURL())
+        // The parsers disagree on some URLs, so check Foundation's host too
+        // before filePathURL can discard it.
+        .filter(|url| {
+            url.host().is_none_or(|host| {
+                let host = host.to_string();
+                host.is_empty() || host.eq_ignore_ascii_case("localhost")
+            })
+        })
         // Finder can publish file reference URLs (file:///.file/id=...),
         // which must be resolved by Foundation before using a filesystem path.
         .filter_map(|url| url.filePathURL())
@@ -494,6 +502,7 @@ mod tests {
         let pb = NSPasteboard::pasteboardWithUniqueName();
         for url in [
             "file://server.example/tmp/a.png",
+            r"file://localhost\@server.example/tmp/a.png",
             "file://127.0.0.1/tmp/a.png",
             "file://[::1]/tmp/a.png",
             "file://server.example/.file/id=6571367.29770420",
