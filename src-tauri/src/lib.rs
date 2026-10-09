@@ -10,6 +10,8 @@ mod codex_mono_store;
 mod control;
 pub mod control_cli;
 mod cursor_store;
+mod devin_config;
+mod devin_usage;
 mod external_editor;
 mod fs;
 mod gitlab;
@@ -17,6 +19,7 @@ mod harness;
 mod harness_updates;
 mod inbox_media;
 mod jira;
+mod jsonc;
 mod linear;
 mod link_preview;
 #[cfg(target_os = "macos")]
@@ -451,6 +454,7 @@ pub fn run() {
             harness::harness_resolve_fx,
             harness::harness_resolve_grok,
             harness::harness_resolve_hermes,
+            harness::harness_resolve_devin,
             harness::harness_resolve_antigravity,
             harness::harness_free_port,
             harness::harness_spawn,
@@ -472,6 +476,7 @@ pub fn run() {
             pi_usage::fetch_pi_usage,
             rate_limits::fetch_claude_usage,
             rate_limits::fetch_opencode_go_usage,
+            devin_usage::fetch_devin_usage,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
