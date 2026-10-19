@@ -46,6 +46,7 @@ export function WorkspacePicker({
   const styles = useStyles();
   const connection = useConnection();
   const insets = useSafeAreaInsets();
+  const [base] = useState(() => connection.selection);
   const [draft, setDraft] = useState<MobileSelection>(
     () => connection.selection ?? { projectIds: [], monoIds: [] },
   );
@@ -67,7 +68,7 @@ export function WorkspacePicker({
     setSaving(true);
     setError("");
     try {
-      await connection.select(draft);
+      await connection.select(draft, base);
       onDone?.();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -93,13 +94,18 @@ export function WorkspacePicker({
           paddingHorizontal: 20,
         }}
       >
+        {editing ? (
+          <Text style={styles.subtitle}>
+            Projects selected here sync across your connected phones.
+          </Text>
+        ) : null}
         {/* In Settings the header titles it, as on the other pages. */}
         {editing ? null : (
           <>
             <Text style={styles.title}>Your mobile{"\n"}workspace</Text>
             <Text style={styles.subtitle}>
               Pick the {MONOS_ENABLED ? "projects and monos" : "projects"} you
-              want here.{"\n"}You can change this anytime in Settings.
+              want on your connected phones.{"\n"}Changes sync across devices.
             </Text>
           </>
         )}
