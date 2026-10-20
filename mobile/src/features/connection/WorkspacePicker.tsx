@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -37,9 +38,11 @@ const FADE = 24;
  */
 export function WorkspacePicker({
   editing = false,
+  headerHeight = 0,
   onDone,
 }: {
   editing?: boolean;
+  headerHeight?: number;
   onDone?: () => void;
 }) {
   const colors = useColors();
@@ -47,6 +50,7 @@ export function WorkspacePicker({
   const connection = useConnection();
   const insets = useSafeAreaInsets();
   const [base] = useState(() => connection.selection);
+  const androidHeader = editing && Platform.OS === "android";
   const [draft, setDraft] = useState<MobileSelection>(
     () => connection.selection ?? { projectIds: [], monoIds: [] },
   );
@@ -83,13 +87,17 @@ export function WorkspacePicker({
     draft.monoIds.filter((id) => monos.some((mono) => mono.id === id)).length;
   const disabled = saving || (!editing && !connection.connected);
   const empty = !connection.catalog.projects.length && !monos.length;
-  return (
-    <View style={[styles.screen, { backgroundColor: background }]}>
+  const content = (
+    <>
       <ScrollView
-        contentInsetAdjustmentBehavior={editing ? "automatic" : "never"}
+        contentInsetAdjustmentBehavior={
+          editing && !androidHeader ? "automatic" : "never"
+        }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: editing ? 4 : insets.top + 48,
+          paddingTop: editing
+            ? (androidHeader ? headerHeight + 12 : 4)
+            : insets.top + 48,
           paddingBottom: footer + 16,
           paddingHorizontal: 20,
         }}
@@ -203,7 +211,12 @@ export function WorkspacePicker({
           </Pressable>
         )}
       </View>
-    </View>
+    </>
+  );
+  // Keep the ScrollView at the screen root, like SettingsPage. UIKit then
+  // tracks it for transparent navigation and the custom fading header blur.
+  return editing ? content : (
+    <View style={[styles.screen, { backgroundColor: background }]}>{content}</View>
   );
 }
 
