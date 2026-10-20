@@ -96,13 +96,22 @@ const files = [
     isDir: false,
   },
 ];
-const render = (text = "@host\n@src/main.tsx") =>
+const render = (text = "@host\n@src/main.tsx", iconsOnly = false) =>
   act(() =>
     root.render(
       <ComposerMentionText
         text={text}
-        parts={composerMentionParts(text, files)}
+        parts={composerMentionParts(
+          text,
+          files.map((file) => ({
+            ...file,
+            canonicalLabel: file.path,
+            start: text.indexOf(`@${file.label}`),
+            end: text.indexOf(`@${file.label}`) + 1 + file.label.length,
+          })),
+        )}
         scroll={scroll}
+        iconsOnly={iconsOnly}
       />,
     ),
   );
@@ -177,4 +186,14 @@ it("uses the desktop light-theme blue and removes styling/icons when a token is 
   measure();
   expect(container.querySelector("[data-icon]")).toBeNull();
   expect(container.querySelector('[data-color="#0284c7"]')).toBeNull();
+});
+
+it("keeps Android mirror text invisible while showing its icons", () => {
+  render("@host", true);
+  measure();
+  measure();
+  expect(
+    container.querySelector<HTMLElement>('[data-layout="true"]')!.style.opacity,
+  ).toBe("0");
+  expect(container.querySelector('[data-icon="host"]')).not.toBeNull();
 });

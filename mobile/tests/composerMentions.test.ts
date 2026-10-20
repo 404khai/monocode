@@ -2,20 +2,33 @@ import { expect, it } from "vitest";
 import {
   composerMentionParts,
   mentionIconPrefixes,
+  prepareComposerMentions,
+  updateComposerMentions,
   type ComposerMention,
 } from "@/features/sessions/composerMentions";
-const files: ComposerMention[] = [
-  { label: "host", name: "host", path: "host", isDir: true },
-  {
-    label: "src/main.tsx",
-    name: "main.tsx",
-    path: "src/main.tsx",
-    isDir: false,
-  },
-  { label: "main.rs", name: "main.rs", path: "src/main.rs", isDir: false },
-];
-it("recognizes selected folder and file tokens while preserving the input text and UTF-16 offsets", () => {
-  const text = "🔍 @host @src/main.tsx, then @main.rs";
+function tag(
+  text: string,
+  label: string,
+  path = label,
+  start = text.indexOf(`@${label}`),
+): ComposerMention {
+  return {
+    label,
+    canonicalLabel: path,
+    name: label,
+    path,
+    isDir: label === "host",
+    start,
+    end: start + 1 + label.length,
+  };
+}
+it("recognizes short selected names while preserving exact text and UTF-16 offsets", () => {
+  const text = "🔍 @host @main.tsx, then @main.rs";
+  const files = [
+    tag(text, "host"),
+    tag(text, "main.tsx", "src/main.tsx"),
+    tag(text, "main.rs", "src/main.rs"),
+  ];
   const parts = composerMentionParts(text, files);
   expect(parts.map((part) => part.text).join("")).toBe(text);
   expect(
@@ -24,27 +37,97 @@ it("recognizes selected folder and file tokens while preserving the input text a
       .map((part) => [part.text, part.start, part.file!.name]),
   ).toEqual([
     ["@host", 3, "host"],
-    ["@src/main.tsx", 9, "main.tsx"],
-    ["@main.rs", 29, "main.rs"],
+    ["@main.tsx", 9, "main.tsx"],
+    ["@main.rs", 25, "main.rs"],
   ]);
+  expect(prepareComposerMentions(text, files)).toBe(
+    "🔍 @host @src/main.tsx, then @src/main.rs",
+  );
 });
-it("keeps email, unknown/edited labels and quoted references as ordinary text", () => {
-  const text = "mail@host @host-edited @unknown\n> @host\n@host";
-  const parts = composerMentionParts(text, files);
-  expect(parts.filter((part) => part.file).map((part) => part.text)).toEqual([
-    "@host",
+it("keeps duplicate basenames distinct when sending and after edits before/between tags", () => {
+  const before = "@main.tsx and @main.tsx";
+  const files = [
+    tag(before, "main.tsx", "web/main.tsx"),
+    tag(before, "main.tsx", "host/main.tsx", before.lastIndexOf("@")),
+  ];
+  expect(prepareComposerMentions(before, files)).toBe(
+    "@web/main.tsx and @host/main.tsx",
+  );
+  const after = "Review @main.tsx and then @main.tsx";
+  const prefixed = "Review " + before;
+  const shifted = updateComposerMentions(
+    prefixed,
+    after,
+    updateComposerMentions(before, prefixed, files),
+  );
+  expect(prepareComposerMentions(after, shifted)).toBe(
+    "Review @web/main.tsx and then @host/main.tsx",
+  );
+});
+it("untags references edited inside their filename without affecting another duplicate", () => {
+  const before = "@main.tsx @main.tsx";
+  const files = [
+    tag(before, "main.tsx", "web/main.tsx"),
+    tag(before, "main.tsx", "host/main.tsx", before.lastIndexOf("@")),
+  ];
+  const after = "@other.tsx @main.tsx";
+  const updated = updateComposerMentions(before, after, files);
+  expect(updated).toHaveLength(1);
+  expect(prepareComposerMentions(after, updated)).toBe(
+    "@other.tsx @host/main.tsx",
+  );
+});
+it("supports a visible filename containing spaces without losing its canonical alias", () => {
+  const text = "Review @read me.md please";
+  const file = {
+    ...tag(text, "read me.md", "docs/read me.md"),
+    canonicalLabel: "docs/read-me.md~2",
+  };
+  expect(composerMentionParts(text, [file]).some((part) => part.file)).toBe(
+    true,
+  );
+  expect(prepareComposerMentions(text, [file])).toBe(
+    "Review @docs/read-me.md~2 please",
+  );
+  expect(prepareComposerMentions(text, [{ ...file, literalPath: true }])).toBe(
+    "Review `docs/read me.md` please",
+  );
+});
+it("does not style or send email, extended names, or quoted tokens as selected references", () => {
+  for (const text of ["mail@host", "@host-edited", "> @host"]) {
+    const file = tag(text, "host");
+    expect(composerMentionParts(text, [file]).some((part) => part.file)).toBe(
+      false,
+    );
+    expect(prepareComposerMentions(text, [file])).toBe(text);
+  }
+});
+it("locates icons on native wrapped lines without changing text widths", () => {
+  const text = "Review @host and\n@main.tsx now";
+  const parts = composerMentionParts(text, [
+    tag(text, "host"),
+    tag(text, "main.tsx", "src/main.tsx"),
   ]);
-  expect(parts.map((part) => part.text).join("")).toBe(text);
-});
-it("locates icon prefixes on native wrapped lines without inserting attachment characters or changing text widths", () => {
-  const text = "Review @host and\n@src/main.tsx now";
-  const parts = composerMentionParts(text, files);
   const markers = mentionIconPrefixes(text, parts, [
     { text: "Review @host and\n", x: 0, y: 0, height: 22 },
-    { text: "@src/main.tsx now", x: 0, y: 22, height: 22 },
+    { text: "@main.tsx now", x: 0, y: 22, height: 22 },
   ]);
   expect(markers.map(({ prefix, y, file }) => [prefix, y, file.name])).toEqual([
     ["Review @", 0, "host"],
     ["@", 22, "main.tsx"],
   ]);
+});
+
+it("preserves the second duplicate's identity when the first tag is deleted", () => {
+  const before = "@main.tsx @main.tsx";
+  const files = [
+    tag(before, "main.tsx", "web/main.tsx"),
+    tag(before, "main.tsx", "host/main.tsx", before.lastIndexOf("@")),
+  ];
+  const after = "@main.tsx";
+  const updated = updateComposerMentions(before, after, files, {
+    start: 0,
+    end: 10,
+  });
+  expect(prepareComposerMentions(after, updated)).toBe("@host/main.tsx");
 });

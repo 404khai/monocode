@@ -27,13 +27,14 @@ export const ComposerMentionText = memo(function ComposerMentionText({
   text,
   parts,
   scroll,
+  iconsOnly = false,
 }: {
   text: string;
   parts: MentionPart[];
   scroll: SharedValue<{ x: number; y: number }>;
+  iconsOnly?: boolean;
 }) {
   const colors = useColors();
-  const scheme = useScheme();
   const [layout, setLayout] = useState<{ text: string; lines: MentionLine[] }>({
     text: "",
     lines: [],
@@ -69,7 +70,10 @@ export const ComposerMentionText = memo(function ComposerMentionText({
     >
       <Animated.View style={[styles.content, offset]}>
         <Text
-          style={[COMPOSER_TEXT_METRICS, { color: colors.content }]}
+          style={[
+            COMPOSER_TEXT_METRICS,
+            { color: colors.content, opacity: iconsOnly ? 0 : 1 },
+          ]}
           textBreakStrategy="simple"
           lineBreakStrategyIOS="none"
           onTextLayout={(event) => {
@@ -84,19 +88,7 @@ export const ComposerMentionText = memo(function ComposerMentionText({
             );
           }}
         >
-          {parts.map((part) =>
-            part.file ? (
-              <Text
-                key={part.start}
-                style={{ color: scheme === "dark" ? "#38bdf8" : "#0284c7" }}
-              >
-                <Text style={styles.invisible}>@</Text>
-                {part.text.slice(1)}
-              </Text>
-            ) : (
-              part.text
-            ),
-          )}
+          <ComposerTextRuns parts={parts} />
         </Text>
         <Text
           style={[COMPOSER_TEXT_METRICS, styles.measure]}
@@ -117,6 +109,32 @@ export const ComposerMentionText = memo(function ComposerMentionText({
     </View>
   );
 });
+
+/** Android paints styled spans in EditText itself, so IME composition never
+ * competes with a second visible copy of its text. No value+children pairing. */
+export function ComposerTextRuns({ parts }: { parts: MentionPart[] }) {
+  const scheme = useScheme();
+  return (
+    <Text style={{ backgroundColor: "transparent" }}>
+      {parts.map((part) =>
+        part.file ? (
+          <Text
+            key={part.start}
+            style={{
+              color: scheme === "dark" ? "#38bdf8" : "#0284c7",
+              backgroundColor: "transparent",
+            }}
+          >
+            <Text style={styles.invisible}>@</Text>
+            {part.text.slice(1)}
+          </Text>
+        ) : (
+          part.text
+        ),
+      )}
+    </Text>
+  );
+}
 
 function MentionIcon({
   marker,

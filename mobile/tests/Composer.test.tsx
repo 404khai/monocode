@@ -1,4 +1,4 @@
-import { act, forwardRef, useRef, type ReactNode } from "react";
+import { act, forwardRef, isValidElement, useRef, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Composer } from "@/features/sessions/Composer";
@@ -18,6 +18,17 @@ const runtime = vi.hoisted(() => ({
   photos: vi.fn(async () => []),
   files: vi.fn(async () => []),
 }));
+function plainText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(plainText).join("");
+  if (
+    isValidElement<{ children?: ReactNode; parts?: { text: string }[] }>(node)
+  )
+    return node.props.parts
+      ? node.props.parts.map((part) => part.text).join("")
+      : plainText(node.props.children);
+  return "";
+}
 vi.mock("react-native", () => {
   const View = ({
     children,
@@ -47,10 +58,16 @@ vi.mock("react-native", () => {
         <div style={contentContainerStyle}>{children}</div>
       </div>
     ),
-    Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+    Text: ({ children, style }: { children?: ReactNode; style?: object }) => (
+      <span style={style}>{children}</span>
+    ),
     Image: () => null,
     Alert: { alert: vi.fn() },
-    StyleSheet: { absoluteFill: {}, absoluteFillObject: {}, create: (styles: object) => styles },
+    StyleSheet: {
+      absoluteFill: {},
+      absoluteFillObject: {},
+      create: (styles: object) => styles,
+    },
     Modal: ({
       visible,
       children,
@@ -80,7 +97,8 @@ vi.mock("react-native", () => {
     TextInput: forwardRef<
       HTMLTextAreaElement,
       {
-        value: string;
+        value?: string;
+        children?: ReactNode;
         placeholder: string;
         editable: boolean;
         style: object[];
@@ -98,7 +116,8 @@ vi.mock("react-native", () => {
     >((props, ref) => (
       <textarea
         ref={ref}
-        value={props.value}
+        data-native-rich={props.value === undefined}
+        value={props.value ?? plainText(props.children)}
         style={Object.assign({}, ...props.style)}
         placeholder={props.placeholder}
         disabled={!props.editable}
@@ -232,9 +251,14 @@ vi.mock("@/ui/LiquidView", () => ({
   ),
 }));
 vi.mock("@/ui/theme", () => ({
-  useColors: () => ({}),
+  useColors: () => ({
+    content: "#ebebeb",
+    accent: "#4c9ef5",
+    muted: "#8c8c8c",
+  }),
   useScheme: () => "dark",
-  themedStyles: (fn: (colors: object) => object) => () => fn({}),
+  themedStyles: (fn: (colors: object) => object) => () =>
+    fn({ content: "#ebebeb", accent: "#4c9ef5", muted: "#8c8c8c" }),
 }));
 
 let container: HTMLDivElement;
@@ -381,16 +405,17 @@ it.each(["android", "ios"])(
     expect(container.textContent).toContain("Files and folders");
     expect(container.querySelectorAll("[data-liquid-surface]")).toHaveLength(2);
     act(() => button("docs/read me.md").click());
-    expect(input.value).toBe("Look at @docs/read-me.md ");
+    expect(input.value).toBe("Look at @read me.md ");
     expect(input.disabled).toBe(false);
-    expect(input.style.color).toBe("transparent");
+    if (os === "ios") expect(input.style.color).toBe("transparent");
+    else expect(input.style.color).not.toBe("transparent");
     expect(document.activeElement).toBe(input);
     runtime.results = [
       { path: "src", name: "src", isDir: true, positions: [], label: "src" },
     ];
     type(input, input.value + "and @s");
     act(() => button("src/").click());
-    expect(input.value).toBe("Look at @docs/read-me.md and @src ");
+    expect(input.value).toBe("Look at @read me.md and @src ");
     await act(async () => button("Send").click());
     expect(send).toHaveBeenCalledWith("Look at @docs/read-me.md and @src", []);
   },
@@ -474,7 +499,7 @@ it.each(["ios", "android"])(
     const input = container.querySelector("textarea")!;
     type(input, "Review @read");
     act(() => button("docs/read me.md").click());
-    expect(input.value).toBe("Review @docs/read%20me.md ");
+    expect(input.value).toBe("Review @read me.md ");
     await act(async () => button("Send").click());
     expect(send).toHaveBeenCalledWith("Review `docs/read me.md`", []);
   },
@@ -490,7 +515,58 @@ it("reopens suggestions when a focused cursor enters a mention after refocusing 
   expect(container.textContent).not.toContain("Files and folders");
   act(() => {
     input.setSelectionRange(8, 8);
-    input.dispatchEvent(new MouseEvent("mouseup", {bubbles: true}));
+    input.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   });
   expect(container.textContent).toContain("Files and folders");
+});
+
+it.each(["ios", "android"])(
+  "shows duplicate nested basenames with distinct canonical references on %s",
+  async (os) => {
+    runtime.os = os;
+    runtime.results = [
+      {
+        path: "web/src/main.tsx",
+        name: "main.tsx",
+        label: "web/src/main.tsx",
+        isDir: false,
+        positions: [],
+      },
+    ];
+    render();
+    const input = container.querySelector("textarea")!;
+    act(() => input.focus());
+    type(input, "Compare @main");
+    act(() => button("web/src/main.tsx").click());
+    expect(input.value).toBe("Compare @main.tsx ");
+    runtime.results = [
+      {
+        path: "host/main.tsx",
+        name: "main.tsx",
+        label: "host/main.tsx",
+        isDir: false,
+        positions: [],
+      },
+    ];
+    type(input, input.value + "and @main");
+    act(() => button("host/main.tsx").click());
+    expect(input.value).toBe("Compare @main.tsx and @main.tsx ");
+    expect(input.disabled).toBe(false);
+    await act(async () => button("Send").click());
+    expect(send).toHaveBeenCalledWith(
+      "Compare @web/src/main.tsx and @host/main.tsx",
+      [],
+    );
+  },
+);
+
+it("uses Android native styled text with one text source instead of a transparent editor", () => {
+  render();
+  const input = container.querySelector("textarea")!;
+  expect(input.dataset.nativeRich).toBe("true");
+  type(input, "ordinary text");
+  expect(input.value).toBe("ordinary text");
+  expect(input.style.color).not.toBe("transparent");
+  expect(input.style.backgroundColor).toBe("transparent");
+  expect(input.style.color).toBe("#ebebeb");
 });

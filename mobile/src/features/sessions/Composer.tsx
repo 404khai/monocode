@@ -54,11 +54,16 @@ import {
 } from "@/features/connection/useMentionSearch";
 import {
   ComposerMentionText,
+  ComposerTextRuns,
   COMPOSER_TEXT_METRICS,
 } from "./ComposerMentionText";
-import { composerMentionParts, type ComposerMention } from "./composerMentions";
+import {
+  composerMentionParts,
+  updateComposerMentions,
+  prepareComposerMentions,
+  type ComposerMention,
+} from "./composerMentions";
 import { FileMentionPicker } from "./FileMentionPicker";
-import { prepareLiteralMentions, type LiteralMention } from "./legacyMentions";
 import { mentionTokenAt, replaceMentionToken } from "./mentionToken";
 
 export const COMPOSER_PLACEHOLDER = "Plan, ask, build…";
@@ -143,7 +148,6 @@ export function Composer({
     [text, taggedFiles],
   );
   const hasMentions = mentionParts.some((part) => part.file);
-  const literalMentions = useRef<LiteralMention[]>([]);
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [inputHeight, setInputHeight] = useState(INPUT_MIN);
@@ -159,7 +163,21 @@ export function Composer({
   const [mentionFocused, setMentionFocused] = useState(false);
   const [dismissedMention, setDismissedMention] = useState<string | null>(null);
   const [activeChoice, setActiveChoice] = useState({ key: "", index: 0 });
-  const token = rangeSelected ? null : mentionTokenAt(text, cursor);
+  const editingTag = taggedFiles.find(
+    (file) =>
+      file.start <= cursor &&
+      cursor <= file.end &&
+      text.slice(file.start, file.end) === `@${file.label}`,
+  );
+  const token = rangeSelected
+    ? null
+    : editingTag
+      ? {
+          start: editingTag.start,
+          end: editingTag.end,
+          query: text.slice(editingTag.start + 1, cursor),
+        }
+      : mentionTokenAt(text, cursor);
   const mentionKey = JSON.stringify([projectId, worktreePath, token, cursor]);
   const showMentions =
     !!projectId &&
@@ -178,29 +196,21 @@ export function Composer({
   const pickMention = (file: MentionFile) => {
     if (!showMentions || !token || !mentionSearch.results.includes(file))
       return;
-    // Do not let a legacy path alias overwrite an unrelated token already in
-    // this draft. New desktops supply their own canonical labels.
-    let label = file.label;
-    if (file.literalPath) {
-      const existing = literalMentions.current.find(
-        (ref) => ref.path === file.path,
-      );
-      if (existing) label = existing.label;
-      else {
-        for (let n = 2; text.includes(`@${label}`); n++)
-          label = `${file.label}~${n}`;
-        literalMentions.current.push({
-          label,
-          path: file.path,
-          isDir: file.isDir,
-        });
-      }
-    }
-    setTaggedFiles((current) => [
-      ...current.filter((file) => file.label !== label),
-      { ...file, label },
-    ]);
+    const label = file.name;
     const next = replaceMentionToken(text, token, label);
+    setTaggedFiles((current) => [
+      ...updateComposerMentions(text, next, current, {
+        start: token.start,
+        end: token.end,
+      }),
+      {
+        ...file,
+        label,
+        canonicalLabel: file.label,
+        start: token.start,
+        end: token.start + 1 + label.length,
+      },
+    ]);
     let position = token.start + 1 + label.length;
     if (next[position] === " ") position += 1;
     selection.current = { start: position, end: position };
@@ -307,11 +317,13 @@ export function Composer({
   const endDictation = (words: string | null) => {
     setDictating(false);
     if (!words) return;
-    setText((current) => {
-      const next = insertDictation(current, words, selection.current);
-      selection.current = { start: next.cursor, end: next.cursor };
-      return next.text;
-    });
+    const next = insertDictation(text, words, selection.current);
+    setTaggedFiles((current) =>
+      updateComposerMentions(text, next.text, current),
+    );
+    selection.current = { start: next.cursor, end: next.cursor };
+    setCursor(next.cursor);
+    setText(next.text);
   };
 
   const attach = async (pick: (room: number) => Promise<Attachment[]>) => {
@@ -343,13 +355,12 @@ export function Composer({
   const send = async () => {
     // The draft stays put until the desktop can take it.
     if (!canSend || blocked) return;
-    const message = text.trim();
+    const draft = text;
+    const message = prepareComposerMentions(text, taggedFiles).trim();
     const tags = taggedFiles;
     setTaggedFiles([]);
     inputScroll.set({ x: 0, y: 0 });
     const files = attachments;
-    const references = literalMentions.current;
-    literalMentions.current = [];
     setSending(true);
     setText("");
     selection.current = { start: 0, end: 0 };
@@ -362,11 +373,10 @@ export function Composer({
     morph(false);
     input.current?.blur();
     try {
-      await onSend(prepareLiteralMentions(message, references), files);
+      await onSend(message, files);
     } catch (reason) {
-      literalMentions.current.push(...references);
       setTaggedFiles((current) => [...tags, ...current]);
-      setText((current) => current || message);
+      setText((current) => current || draft);
       setAttachments((current) => (current.length ? current : files));
       Alert.alert(
         "Message not sent",
@@ -439,12 +449,13 @@ export function Composer({
               text={text}
               parts={mentionParts}
               scroll={inputScroll}
+              iconsOnly={Platform.OS === "android"}
             />
           ) : null}
           <TextInput
             ref={input}
             nativeID={COMPOSER_INPUT_ID}
-            value={text}
+            value={Platform.OS === "android" ? undefined : text}
             editable={!dictating && !blocked}
             selection={inputSelection}
             onChangeText={(value) => {
@@ -472,6 +483,9 @@ export function Composer({
               setCursor(position);
               setRangeSelected(false);
               setInputSelection(undefined);
+              setTaggedFiles((current) =>
+                updateComposerMentions(text, value, current, range),
+              );
               setText(value);
               setMentionFocused(true);
             }}
@@ -482,7 +496,15 @@ export function Composer({
                 selection.current.start !== selection.current.end,
               );
               setInputSelection(undefined);
-              if (focused.get() && mentionTokenAt(text, selection.current.end))
+              if (
+                focused.get() &&
+                (mentionTokenAt(text, selection.current.end) ||
+                  taggedFiles.some(
+                    (file) =>
+                      file.start <= selection.current.end &&
+                      selection.current.end <= file.end,
+                  ))
+              )
                 setMentionFocused(true);
             }}
             onKeyPress={(event) => {
@@ -546,10 +568,16 @@ export function Composer({
             selectionColor={colors.accent}
             style={[
               styles.input,
-              hasMentions && styles.transparentInput,
+              Platform.OS !== "android" &&
+                hasMentions &&
+                styles.transparentInput,
               blocked && styles.hidden,
             ]}
-          />
+          >
+            {Platform.OS === "android" ? (
+              <ComposerTextRuns parts={mentionParts} />
+            ) : null}
+          </TextInput>
           {blocked === "offline" ? (
             <Animated.View
               key="offline"
@@ -887,6 +915,7 @@ const useStyles = themedStyles((colors) => ({
     paddingTop: 8,
     paddingBottom: 8,
     color: colors.content,
+    backgroundColor: "transparent",
     ...COMPOSER_TEXT_METRICS,
     textAlignVertical: "top",
   },
