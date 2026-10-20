@@ -348,6 +348,8 @@ export function ProjectScreen({
           key={sessionId ?? project.id}
           notice={sessionNotice}
           context={project.name}
+          projectId={offCheckout && !loaded ? undefined : project.id}
+          worktreePath={worktreePath}
           branch={sessionId ? (session?.branch ?? project.branch) : branch}
           model={model}
           effort={effort}
