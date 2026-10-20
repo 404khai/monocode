@@ -6,7 +6,7 @@ import {
   frame,
   shapes,
 } from "@expo/ui/swift-ui/modifiers";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   Platform,
@@ -52,6 +52,11 @@ import {
   useMentionSearch,
   type MentionFile,
 } from "@/features/connection/useMentionSearch";
+import {
+  ComposerMentionText,
+  COMPOSER_TEXT_METRICS,
+} from "./ComposerMentionText";
+import { composerMentionParts, type ComposerMention } from "./composerMentions";
 import { FileMentionPicker } from "./FileMentionPicker";
 import { prepareLiteralMentions, type LiteralMention } from "./legacyMentions";
 import { mentionTokenAt, replaceMentionToken } from "./mentionToken";
@@ -132,6 +137,12 @@ export function Composer({
   const blocked = offline ? "offline" : notice ? "error" : null;
   const input = useRef<TextInput>(null);
   const [text, setText] = useState("");
+  const [taggedFiles, setTaggedFiles] = useState<ComposerMention[]>([]);
+  const mentionParts = useMemo(
+    () => composerMentionParts(text, taggedFiles),
+    [text, taggedFiles],
+  );
+  const hasMentions = mentionParts.some((part) => part.file);
   const literalMentions = useRef<LiteralMention[]>([]);
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -185,6 +196,10 @@ export function Composer({
         });
       }
     }
+    setTaggedFiles((current) => [
+      ...current.filter((file) => file.label !== label),
+      { ...file, label },
+    ]);
     const next = replaceMentionToken(text, token, label);
     let position = token.start + 1 + label.length;
     if (next[position] === " ") position += 1;
@@ -278,6 +293,8 @@ export function Composer({
     opacity: 1 - dictation.get() * (1 - progress.get()),
   }));
 
+  const inputScroll = useSharedValue({ x: 0, y: 0 });
+
   const dictate = () => {
     if (!canDictate()) {
       Alert.alert("Dictation unavailable", "Dictation needs iOS 26 or later.");
@@ -327,6 +344,9 @@ export function Composer({
     // The draft stays put until the desktop can take it.
     if (!canSend || blocked) return;
     const message = text.trim();
+    const tags = taggedFiles;
+    setTaggedFiles([]);
+    inputScroll.set({ x: 0, y: 0 });
     const files = attachments;
     const references = literalMentions.current;
     literalMentions.current = [];
@@ -345,6 +365,7 @@ export function Composer({
       await onSend(prepareLiteralMentions(message, references), files);
     } catch (reason) {
       literalMentions.current.push(...references);
+      setTaggedFiles((current) => [...tags, ...current]);
       setText((current) => current || message);
       setAttachments((current) => (current.length ? current : files));
       Alert.alert(
@@ -413,6 +434,13 @@ export function Composer({
         ) : null}
 
         <Animated.View style={[styles.inputSlot, inputStyle, fieldShown]}>
+          {hasMentions && !blocked ? (
+            <ComposerMentionText
+              text={text}
+              parts={mentionParts}
+              scroll={inputScroll}
+            />
+          ) : null}
           <TextInput
             ref={input}
             nativeID={COMPOSER_INPUT_ID}
@@ -454,6 +482,8 @@ export function Composer({
                 selection.current.start !== selection.current.end,
               );
               setInputSelection(undefined);
+              if (focused.get() && mentionTokenAt(text, selection.current.end))
+                setMentionFocused(true);
             }}
             onKeyPress={(event) => {
               if (!showMentions) return;
@@ -502,13 +532,23 @@ export function Composer({
                 ),
               )
             }
+            onScroll={(event) =>
+              inputScroll.set(event.nativeEvent.contentOffset)
+            }
+            textBreakStrategy="simple"
+            lineBreakStrategyIOS="none"
+            underlineColorAndroid="transparent"
             placeholder={busy ? BUSY_PLACEHOLDER : COMPOSER_PLACEHOLDER}
             placeholderTextColor={colors.muted}
             multiline
             keyboardAppearance={scheme}
             cursorColor={colors.accent}
             selectionColor={colors.accent}
-            style={[styles.input, blocked && styles.hidden]}
+            style={[
+              styles.input,
+              hasMentions && styles.transparentInput,
+              blocked && styles.hidden,
+            ]}
           />
           {blocked === "offline" ? (
             <Animated.View
@@ -847,10 +887,10 @@ const useStyles = themedStyles((colors) => ({
     paddingTop: 8,
     paddingBottom: 8,
     color: colors.content,
-    fontSize: 17,
-    lineHeight: 22,
+    ...COMPOSER_TEXT_METRICS,
     textAlignVertical: "top",
   },
+  transparentInput: { color: "transparent" },
   button: {
     position: "absolute",
     bottom: EDGE,

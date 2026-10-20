@@ -50,7 +50,7 @@ vi.mock("react-native", () => {
     Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
     Image: () => null,
     Alert: { alert: vi.fn() },
-    StyleSheet: { absoluteFill: {} },
+    StyleSheet: { absoluteFill: {}, absoluteFillObject: {}, create: (styles: object) => styles },
     Modal: ({
       visible,
       children,
@@ -83,6 +83,7 @@ vi.mock("react-native", () => {
         value: string;
         placeholder: string;
         editable: boolean;
+        style: object[];
         onChangeText: (text: string) => void;
         onFocus: () => void;
         onBlur: () => void;
@@ -98,6 +99,7 @@ vi.mock("react-native", () => {
       <textarea
         ref={ref}
         value={props.value}
+        style={Object.assign({}, ...props.style)}
         placeholder={props.placeholder}
         disabled={!props.editable}
         onFocus={props.onFocus}
@@ -381,6 +383,7 @@ it.each(["android", "ios"])(
     act(() => button("docs/read me.md").click());
     expect(input.value).toBe("Look at @docs/read-me.md ");
     expect(input.disabled).toBe(false);
+    expect(input.style.color).toBe("transparent");
     expect(document.activeElement).toBe(input);
     runtime.results = [
       { path: "src", name: "src", isDir: true, positions: [], label: "src" },
@@ -476,3 +479,18 @@ it.each(["ios", "android"])(
     expect(send).toHaveBeenCalledWith("Review `docs/read me.md`", []);
   },
 );
+
+it("reopens suggestions when a focused cursor enters a mention after refocusing outside it", () => {
+  render();
+  const input = container.querySelector("textarea")!;
+  act(() => input.focus());
+  type(input, "Look @src after");
+  act(() => input.blur());
+  act(() => input.focus());
+  expect(container.textContent).not.toContain("Files and folders");
+  act(() => {
+    input.setSelectionRange(8, 8);
+    input.dispatchEvent(new MouseEvent("mouseup", {bubbles: true}));
+  });
+  expect(container.textContent).toContain("Files and folders");
+});

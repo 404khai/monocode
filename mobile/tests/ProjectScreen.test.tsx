@@ -12,6 +12,7 @@ const desktop = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   offline: false,
   sessionBranch: "main",
+  pushedIn: true,
   os: "ios",
   headerTarget: undefined as unknown,
   header: {} as {
@@ -291,7 +292,7 @@ vi.mock("@/ui/theme", () => {
   };
 });
 vi.mock("@/ui/usePushedIn", () => ({
-  usePushedIn: () => true,
+  usePushedIn: () => desktop.pushedIn,
   usePushStarted: () => true,
 }));
 
@@ -337,12 +338,26 @@ describe("new session composer workspace", () => {
     desktop.sendMessage.mockReset().mockResolvedValue(undefined);
     desktop.offline = false;
     desktop.sessionBranch = "main";
+    desktop.pushedIn = true;
     desktop.os = "ios";
     container = document.createElement("div");
     root = createRoot(container);
   });
   afterEach(() => act(() => root.unmount()));
 
+  it("defers root preloading until an existing session finishes pushing in", () => {
+    desktop.pushedIn = false;
+    render("existing-session");
+    expect(container.querySelector("[data-composer]")!.hasAttribute("data-project")).toBe(false);
+    desktop.pushedIn = true;
+    render("existing-session");
+    expect(container.querySelector("[data-composer]")!.getAttribute("data-project")).toBe(project.id);
+  });
+  it("preloads roots on the empty-session page without waiting for a session push", () => {
+    desktop.pushedIn = false;
+    render();
+    expect(container.querySelector("[data-composer]")!.getAttribute("data-project")).toBe(project.id);
+  });
   it("keeps session mentions enabled when a saved branch no longer matches the checkout", () => {
     desktop.sessionBranch = "old-feature-branch";
     render("existing-session");

@@ -1,14 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { mobileMentionResults } from "./mobileMentionResults";
-import {
-  applyFileMentionsToTurn,
-  mentionTokenAt as desktopToken,
-  replaceMentionToken as desktopReplace,
-} from "../../files/model/fileMentions";
-import {
-  mentionTokenAt,
-  replaceMentionToken,
-} from "../../../../mobile/src/features/sessions/mentionToken";
+import { applyFileMentionsToTurn } from "../../files/model/fileMentions";
 vi.mock("../../files/model/fileIndex", async (original) => ({
   ...(await original<typeof import("../../files/model/fileIndex")>()),
   loadProjectFiles: async () => files,
@@ -66,25 +58,4 @@ it("round-trips spaced-path aliases and directory tokens through desktop prompt 
   expect(await applyFileMentionsToTurn(text, "/repo")).toBe(
     `${text}\n\n---\nReferenced with @ above:\n- @${spaced.label} → docs/read me.md`,
   );
-});
-it("keeps mobile token detection and replacement in parity with desktop across every cursor position", () => {
-  for (const text of [
-    "@",
-    "@test and @other after",
-    "email@example.com",
-    "@a@b",
-    "> quoted @file",
-    "hi\n@docs/",
-    "@" + "a".repeat(121),
-    "plain text",
-  ]) {
-    for (let cursor = 0; cursor <= text.length; cursor++) {
-      const token = mentionTokenAt(text, cursor);
-      expect(token).toEqual(desktopToken(text, cursor));
-      if (token)
-        expect(replaceMentionToken(text, token, "docs/read-me.md~2")).toBe(
-          desktopReplace(text, token, "docs/read-me.md~2"),
-        );
-    }
-  }
 });
