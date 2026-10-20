@@ -5,6 +5,7 @@ import { Composer } from "@/features/sessions/Composer";
 
 const runtime = vi.hoisted(() => ({
   os: "android",
+  scheme: "dark",
   height: 850,
   results: [] as {
     path: string;
@@ -246,8 +247,16 @@ vi.mock("@/features/sessions/attachments", () => ({
 }));
 vi.mock("@/ui/Icon", () => ({ Icon: () => null }));
 vi.mock("@/ui/LiquidView", () => ({
-  LiquidView: ({ children }: { children?: ReactNode }) => (
-    <div data-liquid-surface>{children}</div>
+  LiquidView: ({
+    children,
+    tintColor,
+  }: {
+    children?: ReactNode;
+    tintColor?: string;
+  }) => (
+    <div data-liquid-surface data-tint={tintColor}>
+      {children}
+    </div>
   ),
 }));
 vi.mock("@/ui/theme", () => ({
@@ -256,7 +265,7 @@ vi.mock("@/ui/theme", () => ({
     accent: "#4c9ef5",
     muted: "#8c8c8c",
   }),
-  useScheme: () => "dark",
+  useScheme: () => runtime.scheme,
   themedStyles: (fn: (colors: object) => object) => () =>
     fn({ content: "#ebebeb", accent: "#4c9ef5", muted: "#8c8c8c" }),
 }));
@@ -290,6 +299,7 @@ beforeEach(() => {
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   runtime.os = "android";
+  runtime.scheme = "dark";
   runtime.height = 850;
   runtime.results = [];
   runtime.values = [];
@@ -405,7 +415,7 @@ it.each(["android", "ios"])(
     expect(container.textContent).toContain("Files and folders");
     expect(container.querySelectorAll("[data-liquid-surface]")).toHaveLength(2);
     act(() => button("docs/read me.md").click());
-    expect(input.value).toBe("Look at @read me.md ");
+    expect(input.value).toBe("Look at \u2003read me.md ");
     expect(input.disabled).toBe(false);
     if (os === "ios") expect(input.style.color).toBe("transparent");
     else expect(input.style.color).not.toBe("transparent");
@@ -415,7 +425,7 @@ it.each(["android", "ios"])(
     ];
     type(input, input.value + "and @s");
     act(() => button("src/").click());
-    expect(input.value).toBe("Look at @read me.md and @src ");
+    expect(input.value).toBe("Look at \u2003read me.md and \u2003src ");
     await act(async () => button("Send").click());
     expect(send).toHaveBeenCalledWith("Look at @docs/read-me.md and @src", []);
   },
@@ -467,7 +477,7 @@ it("replaces only the mention under the cursor and supports available hardware k
     ),
   );
   type(input, "@first and @par\ttial after");
-  expect(input.value).toBe("@first and @two.ts after");
+  expect(input.value).toBe("@first and \u2003two.ts after");
 });
 
 it("bounds suggestions above a tall keyboard on a small screen", () => {
@@ -499,7 +509,7 @@ it.each(["ios", "android"])(
     const input = container.querySelector("textarea")!;
     type(input, "Review @read");
     act(() => button("docs/read me.md").click());
-    expect(input.value).toBe("Review @read me.md ");
+    expect(input.value).toBe("Review \u2003read me.md ");
     await act(async () => button("Send").click());
     expect(send).toHaveBeenCalledWith("Review `docs/read me.md`", []);
   },
@@ -538,7 +548,7 @@ it.each(["ios", "android"])(
     act(() => input.focus());
     type(input, "Compare @main");
     act(() => button("web/src/main.tsx").click());
-    expect(input.value).toBe("Compare @main.tsx ");
+    expect(input.value).toBe("Compare \u2003main.tsx ");
     runtime.results = [
       {
         path: "host/main.tsx",
@@ -550,7 +560,7 @@ it.each(["ios", "android"])(
     ];
     type(input, input.value + "and @main");
     act(() => button("host/main.tsx").click());
-    expect(input.value).toBe("Compare @main.tsx and @main.tsx ");
+    expect(input.value).toBe("Compare \u2003main.tsx and \u2003main.tsx ");
     expect(input.disabled).toBe(false);
     await act(async () => button("Send").click());
     expect(send).toHaveBeenCalledWith(
@@ -569,4 +579,15 @@ it("uses Android native styled text with one text source instead of a transparen
   expect(input.style.color).not.toBe("transparent");
   expect(input.style.backgroundColor).toBe("transparent");
   expect(input.style.color).toBe("#ebebeb");
+});
+
+it("uses a white blur tint on both Android composer and picker in light mode", () => {
+  runtime.scheme = "light";
+  render();
+  type(container.querySelector("textarea")!, "@");
+  expect(
+    [...container.querySelectorAll("[data-liquid-surface]")].map((surface) =>
+      surface.getAttribute("data-tint"),
+    ),
+  ).toEqual(["rgba(255,255,255,0.88)", "rgba(255,255,255,0.88)"]);
 });

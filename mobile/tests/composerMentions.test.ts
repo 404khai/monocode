@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import {
+  TAG_ICON_SLOT,
   composerMentionParts,
   mentionIconPrefixes,
   prepareComposerMentions,
@@ -130,4 +131,16 @@ it("preserves the second duplicate's identity when the first tag is deleted", ()
     end: 10,
   });
   expect(prepareComposerMentions(after, updated)).toBe("@host/main.tsx");
+});
+
+it("uses a blank native icon slot, with no @ glyph, while sending the canonical reference", () => {
+  const text = `Review ${TAG_ICON_SLOT}main.tsx`;
+  const file = {
+    ...tag(text, "main.tsx", "src/main.tsx", text.indexOf(TAG_ICON_SLOT)),
+  };
+  expect(text).not.toContain("@");
+  expect(
+    composerMentionParts(text, [file]).find((part) => part.file)?.text,
+  ).toBe(`${TAG_ICON_SLOT}main.tsx`);
+  expect(prepareComposerMentions(text, [file])).toBe("Review @src/main.tsx");
 });

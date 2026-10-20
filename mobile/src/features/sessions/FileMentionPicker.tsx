@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MentionFile } from "@/features/connection/useMentionSearch";
 import { FileTypeIcon } from "@/features/files/FileTypeIcon";
 import { LiquidView } from "@/ui/LiquidView";
-import { themedStyles, useColors } from "@/ui/theme";
+import { themedStyles, useColors, useScheme } from "@/ui/theme";
 
 export function FileMentionPicker({
   files,
@@ -34,6 +34,7 @@ export function FileMentionPicker({
 }) {
   const styles = useStyles();
   const colors = useColors();
+  const scheme = useScheme();
   const list = useRef<ScrollView>(null);
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -57,6 +58,11 @@ export function FileMentionPicker({
           fill
           row={false}
           borderRadius={Platform.OS === "ios" ? 22 : 18}
+          tintColor={
+            Platform.OS === "android" && scheme === "light"
+              ? "rgba(255,255,255,0.88)"
+              : undefined
+          }
           style={StyleSheet.absoluteFill}
         >
           <View />

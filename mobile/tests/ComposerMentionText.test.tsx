@@ -90,13 +90,13 @@ const scroll = { get: () => scrollPosition } as unknown as SharedValue<{
 const files = [
   { label: "host", name: "host", path: "host", isDir: true },
   {
-    label: "src/main.tsx",
+    label: "main.tsx",
     name: "main.tsx",
     path: "src/main.tsx",
     isDir: false,
   },
 ];
-const render = (text = "@host\n@src/main.tsx", iconsOnly = false) =>
+const render = (text = "\u2003host\n\u2003main.tsx", iconsOnly = false) =>
   act(() =>
     root.render(
       <ComposerMentionText
@@ -106,8 +106,8 @@ const render = (text = "@host\n@src/main.tsx", iconsOnly = false) =>
           files.map((file) => ({
             ...file,
             canonicalLabel: file.path,
-            start: text.indexOf(`@${file.label}`),
-            end: text.indexOf(`@${file.label}`) + 1 + file.label.length,
+            start: text.indexOf(`\u2003${file.label}`),
+            end: text.indexOf(`\u2003${file.label}`) + 1 + file.label.length,
           })),
         )}
         scroll={scroll}
@@ -145,7 +145,8 @@ it("paints the desktop blue and positions file-type icons over @ on each wrapped
     [...container.querySelectorAll('[data-color="#38bdf8"]')].map(
       (span) => span.textContent,
     ),
-  ).toEqual(["@host", "@src/main.tsx"]);
+  ).toEqual(["\u2003host", "\u2003main.tsx"]);
+  expect(container.textContent).not.toContain("@");
   const icons = [...container.querySelectorAll<HTMLElement>("[data-icon]")];
   expect(icons.map((icon) => icon.dataset.icon)).toEqual(["host", "main.tsx"]);
   expect(icons.map((icon) => icon.parentElement!.style.top)).toEqual([
@@ -176,20 +177,20 @@ it("leaves all input touches and accessibility to TextInput and follows its nati
 });
 it("uses the desktop light-theme blue and removes styling/icons when a token is edited", () => {
   runtime.scheme = "light";
-  render("@host");
+  render("\u2003host");
   measure();
   measure();
   expect(container.querySelector('[data-color="#0284c7"]')?.textContent).toBe(
-    "@host",
+    "\u2003host",
   );
-  render("@host-edited");
+  render("\u2003host-edited");
   measure();
   expect(container.querySelector("[data-icon]")).toBeNull();
   expect(container.querySelector('[data-color="#0284c7"]')).toBeNull();
 });
 
 it("keeps Android mirror text invisible while showing its icons", () => {
-  render("@host", true);
+  render("\u2003host", true);
   measure();
   measure();
   expect(

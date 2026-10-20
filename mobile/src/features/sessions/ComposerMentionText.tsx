@@ -7,6 +7,7 @@ import Animated, {
 import { FileTypeIcon } from "@/features/files/FileTypeIcon";
 import { useColors, useScheme } from "@/ui/theme";
 import {
+  TAG_ICON_SLOT,
   mentionIconPrefixes,
   type MentionLine,
   type MentionPart,
@@ -22,7 +23,7 @@ export const COMPOSER_TEXT_METRICS: TextStyle = {
 const ICON = 13;
 
 /** Desktop-style paint layer. The native TextInput still owns text, selection,
- * accessibility and all touches. Its @ glyph keeps its real advance width. */
+ * accessibility and all touches. A blank icon slot keeps a stable native advance width. */
 export const ComposerMentionText = memo(function ComposerMentionText({
   text,
   parts,
@@ -39,7 +40,9 @@ export const ComposerMentionText = memo(function ComposerMentionText({
     text: "",
     lines: [],
   });
-  const [atWidth, setAtWidth] = useState(0);
+  const [slotAndProbe, setSlotAndProbe] = useState(0);
+  const [probeWidth, setProbeWidth] = useState(0);
+  const atWidth = slotAndProbe - probeWidth;
   const prefixes = useMemo(() => {
     // Typing after a tag does not change its position. Keep its native icon
     // mounted while the next line measurement arrives.
@@ -93,16 +96,25 @@ export const ComposerMentionText = memo(function ComposerMentionText({
         <Text
           style={[COMPOSER_TEXT_METRICS, styles.measure]}
           onTextLayout={(event) =>
-            setAtWidth(event.nativeEvent.lines[0]?.width ?? 0)
+            setSlotAndProbe(event.nativeEvent.lines[0]?.width ?? 0)
           }
         >
-          @
+          {TAG_ICON_SLOT}M
+        </Text>
+        <Text
+          style={[COMPOSER_TEXT_METRICS, styles.measure]}
+          onTextLayout={(event) =>
+            setProbeWidth(event.nativeEvent.lines[0]?.width ?? 0)
+          }
+        >
+          M
         </Text>
         {prefixes.map((marker) => (
           <MentionIcon
             key={`${marker.start}\n${marker.file.path}\n${marker.prefix}\n${marker.x}\n${marker.y}`}
             marker={marker}
             atWidth={atWidth}
+            probeWidth={probeWidth}
           />
         ))}
       </Animated.View>
@@ -125,7 +137,7 @@ export function ComposerTextRuns({ parts }: { parts: MentionPart[] }) {
               backgroundColor: "transparent",
             }}
           >
-            <Text style={styles.invisible}>@</Text>
+            <Text>{TAG_ICON_SLOT}</Text>
             {part.text.slice(1)}
           </Text>
         ) : (
@@ -139,9 +151,11 @@ export function ComposerTextRuns({ parts }: { parts: MentionPart[] }) {
 function MentionIcon({
   marker,
   atWidth,
+  probeWidth,
 }: {
   marker: ReturnType<typeof mentionIconPrefixes>[number];
   atWidth: number;
+  probeWidth: number;
 }) {
   const [width, setWidth] = useState<number>();
   return (
@@ -151,13 +165,13 @@ function MentionIcon({
         style={[COMPOSER_TEXT_METRICS, styles.measure]}
         onTextLayout={(event) => setWidth(event.nativeEvent.lines[0]?.width)}
       >
-        {marker.prefix}
+        {marker.prefix}M
       </Text>
       {width !== undefined && atWidth > 0 ? (
         <View
           style={{
             position: "absolute",
-            left: marker.x + width - atWidth / 2 - ICON / 2,
+            left: marker.x + width - probeWidth - atWidth / 2 - ICON / 2,
             top: marker.y + (marker.height - ICON) / 2,
             width: ICON,
             height: ICON,
@@ -184,5 +198,4 @@ const styles = StyleSheet.create({
   },
   content: { position: "absolute", top: 8, left: 0, right: 0 },
   measure: { position: "absolute", top: 0, left: 0, right: 0, opacity: 0 },
-  invisible: { color: "transparent" },
 });

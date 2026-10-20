@@ -58,6 +58,7 @@ import {
   COMPOSER_TEXT_METRICS,
 } from "./ComposerMentionText";
 import {
+  TAG_ICON_SLOT,
   composerMentionParts,
   updateComposerMentions,
   prepareComposerMentions,
@@ -167,7 +168,7 @@ export function Composer({
     (file) =>
       file.start <= cursor &&
       cursor <= file.end &&
-      text.slice(file.start, file.end) === `@${file.label}`,
+      text.slice(file.start + 1, file.end) === file.label,
   );
   const token = rangeSelected
     ? null
@@ -197,7 +198,11 @@ export function Composer({
     if (!showMentions || !token || !mentionSearch.results.includes(file))
       return;
     const label = file.name;
-    const next = replaceMentionToken(text, token, label);
+    const replaced = replaceMentionToken(text, token, label);
+    const next =
+      replaced.slice(0, token.start) +
+      TAG_ICON_SLOT +
+      replaced.slice(token.start + 1);
     setTaggedFiles((current) => [
       ...updateComposerMentions(text, next, current, {
         start: token.start,
@@ -405,6 +410,11 @@ export function Composer({
           fill
           row={false}
           borderRadius={RADIUS}
+          tintColor={
+            Platform.OS === "android" && scheme === "light"
+              ? "rgba(255,255,255,0.88)"
+              : undefined
+          }
           style={StyleSheet.absoluteFill}
         >
           <View />

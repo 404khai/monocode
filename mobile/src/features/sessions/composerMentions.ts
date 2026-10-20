@@ -1,6 +1,9 @@
 import { prepareLiteralMentions } from "./legacyMentions";
 import { mentionTokenAt } from "./mentionToken";
 
+/** A real blank glyph reserves one icon slot; Android never receives an @ to redraw. */
+export const TAG_ICON_SLOT = "\u2003";
+
 export type ComposerMention = {
   label: string;
   canonicalLabel: string;
@@ -31,11 +34,15 @@ const PUNCTUATION = new Set([
 ]);
 
 function validMention(text: string, file: ComposerMention) {
+  const marker = text[file.start];
   if (
-    text.slice(file.start, file.end) !== `@${file.label}` ||
-    !mentionTokenAt(text, file.start + 1)
+    (marker !== TAG_ICON_SLOT && marker !== "@") ||
+    text.slice(file.start + 1, file.end) !== file.label
   )
     return false;
+  const lineStart = text.lastIndexOf("\n", Math.max(0, file.start - 1)) + 1;
+  if (/^ {0,3}>/.test(text.slice(lineStart, file.start))) return false;
+  if (marker === "@" && !mentionTokenAt(text, file.start + 1)) return false;
   const tail = text.slice(file.end).match(/^\S*/)?.[0] ?? "";
   return [...tail].every((char) => PUNCTUATION.has(char));
 }
@@ -143,7 +150,7 @@ export type MentionLine = {
   height: number;
 };
 
-/** Measure the prefix ending at @ on its actual wrapped native text line.
+/** Measure the prefix ending at the icon slot on its wrapped native text line.
  * The icon replaces the glyph visually, without changing its advance width. */
 export function mentionIconPrefixes(
   text: string,
