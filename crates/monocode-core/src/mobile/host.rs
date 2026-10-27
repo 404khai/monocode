@@ -171,6 +171,8 @@ pub struct MobileHost {
     path: PathBuf,
     events: async_channel::Sender<Event>,
     runtime: Arc<OnceLock<tokio::runtime::Runtime>>,
+    /// Serializes keyring access without holding `inner`, which the UI reads.
+    identity_load: Arc<Mutex<()>>,
     pending: Arc<AtomicUsize>,
     shut_down: Arc<AtomicBool>,
 }
@@ -212,13 +214,24 @@ impl MobileHost {
             path,
             events,
             runtime: Arc::default(),
+            identity_load: Arc::default(),
             pending: Arc::default(),
             shut_down: Arc::default(),
         };
+        // The keyring read can wait on securityd or an access prompt, and the
+        // app opens the host while launching.
         if enabled {
-            if let Err(error) = host.start() {
-                host.inner.lock().map_err(unavailable)?.error = Some(error);
-            }
+            let starting = host.clone();
+            std::thread::Builder::new()
+                .name("monocode-mobile-start".into())
+                .spawn(move || {
+                    if let Err(error) = starting.start() {
+                        if let Ok(mut inner) = starting.inner.lock() {
+                            inner.error = Some(error);
+                        }
+                    }
+                })
+                .map_err(|e| format!("Mobile service could not start: {e}"))?;
         }
         Ok((host, receiver))
     }
@@ -445,17 +458,21 @@ impl MobileHost {
     /// The desktop's long-lived identity, kept in the OS keyring under the same
     /// entry the earlier desktop app used, so paired phones stay paired.
     fn identity(&self) -> Result<Identity, String> {
-        let mut inner = self.inner.lock().map_err(unavailable)?;
-        if let Some(identity) = &inner.identity {
-            return Ok(identity.clone());
-        }
+        let _loading = self.identity_load.lock().map_err(unavailable)?;
+        let paired = {
+            let inner = self.inner.lock().map_err(unavailable)?;
+            if let Some(identity) = &inner.identity {
+                return Ok(identity.clone());
+            }
+            !inner.config.devices.is_empty()
+        };
         let entry = keyring::Entry::new("com.monocode.mobile", &keyring_account(&self.path))
             .map_err(|e| e.to_string())?;
         let identity = match entry.get_password() {
             Ok(value) => serde_json::from_str(&value)
                 .map_err(|_| "Saved desktop mobile identity is invalid")?,
             Err(keyring::Error::NoEntry) => {
-                if !inner.config.devices.is_empty() {
+                if paired {
                     return Err("Desktop mobile identity is missing. Remove paired devices before creating a new identity.".into());
                 }
                 let identity = Identity::generate()?;
@@ -466,7 +483,7 @@ impl MobileHost {
             }
             Err(error) => return Err(format!("Cannot read desktop mobile identity: {error}")),
         };
-        inner.identity = Some(identity.clone());
+        self.inner.lock().map_err(unavailable)?.identity = Some(identity.clone());
         Ok(identity)
     }
 
