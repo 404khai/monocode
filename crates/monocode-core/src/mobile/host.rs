@@ -403,7 +403,10 @@ impl MobileHost {
         let identity = self.identity()?;
         let runtime = self.runtime()?;
         let mut inner = self.inner.lock().map_err(unavailable)?;
-        if inner.endpoint.is_some() {
+        if !inner.config.enabled
+            || self.shut_down.load(Ordering::SeqCst)
+            || inner.endpoint.is_some()
+        {
             return Ok(());
         }
         let endpoint = {
@@ -800,6 +803,43 @@ mod tests {
             );
         }
         (host, events, join, phone)
+    }
+
+    fn check_pending_start_stays_stopped(shutdown: bool) {
+        let (host, _events, _join, _phone) = fixture();
+        host.inner.lock().unwrap().config.open_router = false;
+        let loading = host.identity_load.lock().unwrap();
+        let starting = host.clone();
+        let (entered, waiting) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            entered.send(()).unwrap();
+            starting.start()
+        });
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+        if shutdown {
+            host.shutdown();
+        } else {
+            host.configure(false, false, "").unwrap();
+        }
+        drop(loading);
+        let result = worker.join().unwrap();
+        let listening = host.status().listening;
+        host.shutdown();
+        if host.path.exists() {
+            std::fs::remove_dir_all(host.path.parent().unwrap()).unwrap();
+        }
+        result.unwrap();
+        assert!(!listening, "listener started after shutdown={shutdown}");
+    }
+
+    #[test]
+    fn pending_start_does_not_listen_after_disable() {
+        check_pending_start_stays_stopped(false);
+    }
+
+    #[test]
+    fn pending_start_does_not_listen_after_shutdown() {
+        check_pending_start_stays_stopped(true);
     }
 
     #[test]
