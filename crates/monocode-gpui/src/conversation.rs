@@ -229,6 +229,7 @@ pub(crate) struct Conversation {
     cancel: Arc<AtomicBool>,
     title_cancel: Option<Arc<AtomicBool>>,
     _submission: Subscription,
+    _alternate_submission: Subscription,
     response_events: Option<Subscription>,
     response_menu: Option<ResponseMenu>,
     response_request: Option<(usize, monocode_core::response::TransferKind, Instant)>,
@@ -508,7 +509,12 @@ impl Conversation {
             }
             this.open_typed_btw(cx);
         });
+        input.update(cx, |input, _| input.set_alternate_submit(true));
         let submission = cx.subscribe(&input, |this, _, _: &input::Submitted, cx| this.send(cx));
+        let alternate_submission = cx
+            .subscribe(&input, |this, _, _: &input::AlternateSubmitted, cx| {
+                this.send_follow_up(true, cx)
+            });
         let review =
             cx.new(|_| crate::session_review::SessionReview::new(summary.id, summary.cwd.clone()));
         let review_events = cx.subscribe(&review, |this, review, event, cx| match event {
@@ -661,6 +667,7 @@ impl Conversation {
             cancel: Arc::new(AtomicBool::new(false)),
             title_cancel: None,
             _submission: submission,
+            _alternate_submission: alternate_submission,
             response_events: None,
             response_menu: None,
             response_request: None,
@@ -853,11 +860,16 @@ impl Conversation {
         self.send(cx);
     }
     fn send(&mut self, cx: &mut Context<Self>) {
+        self.send_follow_up(false, cx);
+    }
+    /// `invert` sends a mid-turn message the opposite way from the follow-up
+    /// preference: queued when it steers, steering when it queues.
+    fn send_follow_up(&mut self, invert: bool, cx: &mut Context<Self>) {
         if self.is_remote() && self.remote_send_guard(cx) {
             return;
         }
         if self.needs_history_restore() {
-            self.defer_history_action(|this, cx| this.send(cx), cx);
+            self.defer_history_action(move |this, cx| this.send_follow_up(invert, cx), cx);
             return;
         }
         if self.submit_edited(cx) {
@@ -939,12 +951,8 @@ impl Conversation {
             // the outgoing provider and commits the handoff.
             self.stop(cx);
         }
-        if self.stopping
-            || self.busy
-            || self.settings.pending_provider_switch.is_some()
-            || (!self.follow_ups.state.messages.is_empty() && !self.follow_ups.state.paused)
-        {
-            self.enqueue_follow_up(prompt, mode.map(str::to_owned), cx);
+        if self.sends_as_follow_up() {
+            self.enqueue_follow_up_inverted(prompt, mode.map(str::to_owned), invert, cx);
             if self.stopping || self.settings.pending_provider_switch.is_some() {
                 // A fresh Send continues the conversation, while older queued
                 // messages remain paused after Stop.
@@ -973,6 +981,37 @@ impl Conversation {
         if self.busy && mode.is_some() {
             self.clear_submitted_mode(cx);
         }
+    }
+    /// A message sent now joins the follow-ups instead of starting a turn.
+    fn sends_as_follow_up(&self) -> bool {
+        self.stopping
+            || self.busy
+            || self.settings.pending_provider_switch.is_some()
+            || (!self.follow_ups.state.messages.is_empty() && !self.follow_ups.state.paused)
+    }
+    /// The submit icon for a message that will steer or queue, if it will.
+    fn follow_up_action(
+        &self,
+        alternate: bool,
+        cx: &gpui::App,
+    ) -> Option<(&'static str, &'static str)> {
+        // Stop and provider switches send the message as the next turn.
+        if self.settings.mono.is_some()
+            || self.is_remote()
+            || self.stopping
+            || self.settings.pending_provider_switch.is_some()
+            || !self.sends_as_follow_up()
+        {
+            return None;
+        }
+        let mode = self.settings.orchestrator || self.settings.plan || self.settings.operator;
+        Some(
+            if self.busy && !mode && self.steers_follow_up(alternate, cx) {
+                ("Steer", "queue-steer")
+            } else {
+                ("Queue", "queue-list")
+            },
+        )
     }
     fn launch_prompt(&mut self, prompt: String, cx: &mut Context<Self>) {
         if self.stopping {
@@ -2944,7 +2983,7 @@ impl Conversation {
                                             .child(icon("chevron-down", 12.)),
                                     ),
                             )
-                            .child(self.action(has_value, cx)),
+                            .child(self.action(has_value, window, cx)),
                     )
                     .children(self.attachment_drop_overlay(12.)),
             )
@@ -3160,9 +3199,18 @@ impl Conversation {
     }
 
     // ComposerAction: a solid submit, dimmed while empty; Stop while busy.
-    fn action(&self, has_value: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn action(&self, has_value: bool, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.responding() && !has_value;
         let draft = self.draft_active(cx);
+        let modifiers = window.modifiers();
+        let alternate = if cfg!(target_os = "macos") {
+            modifiers.platform
+        } else {
+            modifiers.control
+        };
+        let follow_up = (has_value && !draft)
+            .then(|| self.follow_up_action(alternate, cx))
+            .flatten();
         let enabled = !self.attaching
             && (!self.preparing_worktree || self.busy || self.stopping)
             && (busy || (has_value && self.loaded))
@@ -3174,9 +3222,10 @@ impl Conversation {
             } else if draft {
                 "Save draft"
             } else {
-                "Send"
+                follow_up.map_or("Send", |(label, _)| label)
             },
             busy,
+            follow_up.map_or("send", |(_, glyph)| glyph),
             enabled,
         )
         .on_click(cx.listener(move |this, _, _, cx| {
@@ -3750,6 +3799,7 @@ fn send_button(
     id: &'static str,
     label: &'static str,
     busy: bool,
+    glyph: &'static str,
     enabled: bool,
 ) -> gpui::Stateful<gpui::Div> {
     let accent = primary_action(enabled);
@@ -3777,7 +3827,7 @@ fn send_button(
             if busy {
                 d.child(div().size(px(10.)).rounded(px(2.)).bg(ink))
             } else {
-                d.child(icon("send", 14.).text_color(ink))
+                d.child(icon(glyph, 14.).text_color(ink))
             }
         })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
