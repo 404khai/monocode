@@ -184,9 +184,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // The question each conversation answered here last. A frame sent before
   // the desktop took the answer must not bring its card back.
   const answered = useRef(new Map<string, number>());
+  // A token for each question as it appears, so an answer hides only the
+  // showing it answered, not a later one that reuses its ID.
+  const displayed = useRef(new Map<string, { requestId: number; token: number }>());
+  const nextToken = useRef(0);
   const showQuestion = useCallback((id: string, question: QuestionPrompt | null | undefined) => {
     // Gone on the desktop too: a later question may reuse the ID.
-    if (!question) answered.current.delete(id);
+    if (!question) {
+      answered.current.delete(id);
+      displayed.current.delete(id);
+    } else if (displayed.current.get(id)?.requestId !== question.requestId)
+      displayed.current.set(id, { requestId: question.requestId, token: ++nextToken.current });
     const shown = question && answered.current.get(id) !== question.requestId ? question : null;
     setQuestions((previous) =>
       shown
@@ -497,13 +505,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
   const answerQuestion = useCallback(
     async (conversationId: string, requestId: number, reply: QuestionReply) => {
+      const shown = displayed.current.get(conversationId);
+      const token = shown?.requestId === requestId ? shown.token : undefined;
       await mutate("session.answerQuestion", { conversationId, requestId, reply });
       // Only while it still shows: the desktop's clear may have come first.
-      setQuestions((previous) => {
-        if (previous[conversationId]?.requestId !== requestId) return previous;
-        answered.current.set(conversationId, requestId);
-        return withoutKey(previous, conversationId);
-      });
+      if (token === undefined || displayed.current.get(conversationId)?.token !== token) return;
+      answered.current.set(conversationId, requestId);
+      setQuestions((previous) =>
+        previous[conversationId]?.requestId === requestId
+          ? withoutKey(previous, conversationId)
+          : previous,
+      );
     },
     [mutate],
   );

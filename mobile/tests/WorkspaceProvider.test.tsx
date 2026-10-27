@@ -295,6 +295,22 @@ describe("starting mobile sessions", () => {
     expect(conversation.question).toEqual(question(1));
   });
 
+  it("does not hide a question reusing the ID that appears before the answer's reply", async () => {
+    const answered = deferred<unknown>();
+    link.command.mockReturnValue(answered.promise);
+    await act(async () => { render("existing"); });
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    let done: Promise<void> | undefined;
+    act(() => { done = workspace.answerQuestion("existing", 1, reply); });
+    await frame([{ order: [], turns: [], busy: true, question: null }]);
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    await act(async () => {
+      answered.resolve({ sessionId: "existing" });
+      await done;
+    });
+    expect(conversation.question).toEqual(question(1));
+  });
+
   it("keeps a question that failed to send", async () => {
     link.command.mockRejectedValue(new Error("This question was already answered"));
     await act(async () => { render("existing"); });
