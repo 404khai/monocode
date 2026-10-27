@@ -1839,9 +1839,6 @@ impl Shell {
                                                 .justify_end()
                                                 .gap_2()
                                                 .when(dialog.editing, |d| {
-                                                    // A spacer, not `mr_auto`: taffy also applies
-                                                    // `justify_end` to an auto margin's free space,
-                                                    // which pushed Update link out of the dialog.
                                                     d.child(
                                                         button("link-remove", "Remove link")
                                                             .text_color(rgb(0xf87171))
