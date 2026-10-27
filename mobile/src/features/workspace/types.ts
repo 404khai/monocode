@@ -128,6 +128,28 @@ export type SessionSummary = {
   waiting?: "approval" | "question";
 };
 
+// The desktop's UserQuestionPrompt (src/features/sessions/model/userQuestion.ts):
+// what an agent asks the user, answered from the composer's question card.
+export type QuestionOption = { id: string; label: string; description?: string };
+export type Question = {
+  id: string;
+  header?: string;
+  prompt: string;
+  multiSelect: boolean;
+  allowCustom: boolean;
+  options: QuestionOption[];
+};
+export type QuestionPrompt = {
+  requestId: number;
+  title?: string;
+  questions: Question[];
+  /** When the agent carries on without an answer, if it would. */
+  autoResolveAt?: number;
+};
+export type QuestionReply =
+  | { kind: "answered"; answers: Record<string, string[]>; custom?: Record<string, string> }
+  | { kind: "skipped" };
+
 export type Message = {
   id: string;
   role: "user" | "assistant";

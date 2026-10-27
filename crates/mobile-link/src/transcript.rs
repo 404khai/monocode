@@ -364,6 +364,8 @@ pub struct Transcript {
     history_older: Option<bool>,
     pending: Value,
     busy: bool,
+    /// What the agent waits on the user to answer, as the desktop sent it.
+    question: Value,
     older: bool,
     error: Option<String>,
     ready: bool,
@@ -382,6 +384,7 @@ impl Transcript {
             history_older: None,
             pending: Value::Null,
             busy: false,
+            question: Value::Null,
             older: false,
             error: None,
             ready: false,
@@ -411,6 +414,7 @@ impl Transcript {
                     .cloned()
                     .unwrap_or_else(|| from_messages(&command["messages"]));
                 self.busy = command["busy"].as_bool().unwrap_or(false);
+                self.question = command["question"].clone();
                 self.older = false;
                 self.error = None;
                 self.ready = true;
@@ -517,6 +521,10 @@ impl Transcript {
                 }
                 if let Some(older) = frame["older"].as_bool() {
                     self.older = older;
+                }
+                // Sent when it changes; null once answered.
+                if let Some(question) = frame.get("question") {
+                    self.question = question.clone();
                 }
                 for turn in frame["turns"].as_array().into_iter().flatten() {
                     let id = string(turn, "id");
@@ -650,7 +658,8 @@ impl Transcript {
             "rows": changed,
             "order": if order == self.order { None } else { Some(&order) },
             "status": { "busy":self.busy, "error":self.error, "hasTurns":!turns.is_empty(), "ready":self.ready, "lastUserId":self.last_user_id(),
-                "userCount":self.user_count(), "pendingId":self.pending["turn"]["id"], "notice":latest_error },
+                "userCount":self.user_count(), "pendingId":self.pending["turn"]["id"], "notice":latest_error,
+                "question":self.question },
             "older": self.history_older.unwrap_or(self.older),
             "firstTurnId": self.history.first().or(self.turns.first()).map(|t| string(t,"id")),
             "watchFrom": self.turns.first().map(|t| string(t,"id")),
@@ -1136,6 +1145,27 @@ mod tests {
             .unwrap();
         assert!(after["status"]["pendingId"].is_null());
         assert_eq!(after["status"]["lastUserId"], "4/u");
+    }
+    #[test]
+    fn pending_question_holds_until_the_desktop_clears_it() {
+        let mut t = Transcript::new(Vec::new(), true);
+        let question = json!({"requestId":7,"questions":[{"id":"q","prompt":"Which?","multiSelect":false,"allowCustom":true,"options":[]}]});
+        let asked = t
+            .update(json!({"type":"frames","frames":[{"busy":true,"order":[],"turns":[],"question":question.clone()}]}))
+            .unwrap();
+        assert_eq!(asked["status"]["question"], question);
+        let streaming = t
+            .update(json!({"type":"frames","frames":[{"busy":true,"order":[],"turns":[]}]}))
+            .unwrap();
+        assert_eq!(streaming["status"]["question"], question);
+        let answered = t
+            .update(json!({"type":"frames","frames":[{"order":[],"turns":[],"question":null}]}))
+            .unwrap();
+        assert!(answered["status"]["question"].is_null());
+        let read = t
+            .update(json!({"type":"replace","turns":[],"busy":true,"question":question.clone()}))
+            .unwrap();
+        assert_eq!(read["status"]["question"], question);
     }
     #[test]
     fn completed_blocks_share_allocations_and_stream_completion_has_no_text_delta() {

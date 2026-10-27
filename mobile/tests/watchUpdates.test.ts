@@ -49,6 +49,21 @@ describe("watch frames", () => {
     expect(applyFrames([], [{ order: ["a"], turns: [] }])).toBeNull();
   });
 
+  it("carries the latest question a burst sends, and leaves it alone when none does", () => {
+    const question = {
+      requestId: 4,
+      questions: [{ id: "q", prompt: "Which?", multiSelect: false, allowCustom: true, options: [] }],
+    };
+    expect(applyFrames([], [{ order: [], turns: [] }])!.question).toBeUndefined();
+    expect(applyFrames([], [{ order: [], turns: [], question }])!.question).toEqual(question);
+    expect(
+      applyFrames([], [
+        { order: [], turns: [], question },
+        { order: [], turns: [], question: null },
+      ])!.question,
+    ).toBeNull();
+  });
+
   it("carries an error until the next good frame", () => {
     expect(
       applyFrames([], [{ error: "Mono is no longer available" }])!.error,

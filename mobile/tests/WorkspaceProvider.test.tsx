@@ -252,4 +252,66 @@ describe("starting mobile sessions", () => {
     expect(JSON.parse(link.storage.get("monocode.mobile.desktop.turns.existing")!)).toEqual([latest]);
     expect(JSON.parse(link.storage.get("monocode.mobile.desktop.turns")!)).toEqual(["existing"]);
   });
+
+  const question = (requestId: number) => ({
+    requestId,
+    questions: [{ id: "q", prompt: "Which?", multiSelect: false, allowCustom: false, options: [{ id: "a", label: "A" }] }],
+  });
+  const reply = { kind: "answered" as const, answers: { q: ["a"] } };
+
+  it("hides an answered question until the desktop clears it, then shows one reusing its ID", async () => {
+    link.command.mockResolvedValue({ sessionId: "existing" });
+    await act(async () => { render("existing"); });
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    expect(conversation.question).toEqual(question(1));
+
+    await act(async () => { await workspace.answerQuestion("existing", 1, reply); });
+    expect(link.command).toHaveBeenCalledWith("session.answerQuestion", {
+      conversationId: "existing", requestId: 1, reply,
+    }, "request-id");
+    expect(conversation.question).toBeNull();
+    // Sent before the desktop took the answer.
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    expect(conversation.question).toBeNull();
+
+    await frame([{ order: [], turns: [], busy: true, question: null }]);
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    expect(conversation.question).toEqual(question(1));
+  });
+
+  it("does not hide a reused ID when the desktop's clear lands before the answer's reply", async () => {
+    const answered = deferred<unknown>();
+    link.command.mockReturnValue(answered.promise);
+    await act(async () => { render("existing"); });
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    let done: Promise<void> | undefined;
+    act(() => { done = workspace.answerQuestion("existing", 1, reply); });
+    await frame([{ order: [], turns: [], busy: true, question: null }]);
+    await act(async () => {
+      answered.resolve({ sessionId: "existing" });
+      await done;
+    });
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    expect(conversation.question).toEqual(question(1));
+  });
+
+  it("keeps a question that failed to send", async () => {
+    link.command.mockRejectedValue(new Error("This question was already answered"));
+    await act(async () => { render("existing"); });
+    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    await act(async () => {
+      await expect(workspace.answerQuestion("existing", 1, reply)).rejects.toThrow("already answered");
+    });
+    expect(conversation.question).toEqual(question(1));
+  });
+
+  it("shows a native transcript's question, and clears it when the status has none", async () => {
+    link.nativeTranscript = true;
+    render("session");
+    const status = { busy: true, error: null, hasTurns: true, userCount: 1, pendingId: null };
+    act(() => workspace.nativeTranscriptStatus("session", { ...status, question: question(2) }));
+    expect(conversation.question).toEqual(question(2));
+    act(() => workspace.nativeTranscriptStatus("session", { ...status, question: null }));
+    expect(conversation.question).toBeNull();
+  });
 });
