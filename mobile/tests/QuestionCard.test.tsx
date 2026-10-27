@@ -106,6 +106,7 @@ describe("question card", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     workspace.answerQuestion.mockResolvedValue(undefined);
+    workspace.keepQuestionOpen.mockResolvedValue(undefined);
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -169,5 +170,24 @@ describe("question card", () => {
     await press("Skip");
     expect(workspace.answerQuestion).toHaveBeenCalledWith("session", 4, { kind: "skipped" });
     expect(workspace.alert).toHaveBeenCalledWith("Answer not sent", "This question was already answered");
+  });
+
+  it("retries keeping a question open after failure, suppressing duplicates during and after success", async () => {
+    let reject!: (reason: Error) => void;
+    workspace.keepQuestionOpen.mockReturnValueOnce(new Promise<void>((_, fail) => { reject = fail; }));
+    render({ requestId: 4, questions: [colour], autoResolveAt: Date.now() + 30_000 });
+    const touch = () => host.querySelector("section")!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    act(() => { touch(); touch(); });
+    expect(workspace.keepQuestionOpen).toHaveBeenCalledTimes(1);
+
+    await act(async () => { reject(new Error("Connection lost")); });
+    let resolve!: () => void;
+    workspace.keepQuestionOpen.mockReturnValueOnce(new Promise<void>((done) => { resolve = done; }));
+    act(() => { touch(); touch(); });
+    expect(workspace.keepQuestionOpen).toHaveBeenCalledTimes(2);
+    await act(async () => { resolve(); });
+    act(() => touch());
+    expect(workspace.keepQuestionOpen).toHaveBeenCalledTimes(2);
+    expect(workspace.keepQuestionOpen).toHaveBeenLastCalledWith("session", 4);
   });
 });

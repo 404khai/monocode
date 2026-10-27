@@ -259,7 +259,7 @@ describe("starting mobile sessions", () => {
   });
   const reply = { kind: "answered" as const, answers: { q: ["a"] } };
 
-  it("hides an answered question until the desktop clears it, then shows one reusing its ID", async () => {
+  it.each([false, true])("shows a reused ID after a clear (batched: %s)", async (batched) => {
     link.command.mockResolvedValue({ sessionId: "existing" });
     await act(async () => { render("existing"); });
     await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
@@ -274,8 +274,13 @@ describe("starting mobile sessions", () => {
     await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
     expect(conversation.question).toBeNull();
 
-    await frame([{ order: [], turns: [], busy: true, question: null }]);
-    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    const clear = { order: [], turns: [], busy: true, question: null };
+    const replacement = { order: [], turns: [], busy: true, question: question(1) };
+    if (batched) await frame([clear, replacement]);
+    else {
+      await frame([clear]);
+      await frame([replacement]);
+    }
     expect(conversation.question).toEqual(question(1));
   });
 
@@ -302,8 +307,10 @@ describe("starting mobile sessions", () => {
     await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
     let done: Promise<void> | undefined;
     act(() => { done = workspace.answerQuestion("existing", 1, reply); });
-    await frame([{ order: [], turns: [], busy: true, question: null }]);
-    await frame([{ order: [], turns: [], busy: true, question: question(1) }]);
+    await frame([
+      { order: [], turns: [], busy: true, question: null },
+      { order: [], turns: [], busy: true, question: question(1) },
+    ]);
     await act(async () => {
       answered.resolve({ sessionId: "existing" });
       await done;
@@ -319,6 +326,17 @@ describe("starting mobile sessions", () => {
       await expect(workspace.answerQuestion("existing", 1, reply)).rejects.toThrow("already answered");
     });
     expect(conversation.question).toEqual(question(1));
+  });
+
+  it("reports a failed keep-open request so the card can retry", async () => {
+    link.command.mockRejectedValueOnce(new Error("Connection lost"));
+    render();
+    await expect(workspace.keepQuestionOpen("existing", 1)).rejects.toThrow("Connection lost");
+    link.command.mockResolvedValueOnce(undefined);
+    await workspace.keepQuestionOpen("existing", 1);
+    expect(link.command).toHaveBeenLastCalledWith("session.keepQuestionOpen", {
+      conversationId: "existing", requestId: 1,
+    }, "request-id");
   });
 
   it("shows a native transcript's question, and clears it when the status has none", async () => {

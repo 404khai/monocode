@@ -56,7 +56,7 @@ type Workspace = {
     reply: QuestionReply,
   ) => Promise<void>;
   /** Stops a timed question skipping itself while it is being answered, as on desktop. */
-  keepQuestionOpen: (conversationId: string, requestId: number) => void;
+  keepQuestionOpen: (conversationId: string, requestId: number) => Promise<void>;
   /** A page of a project's sessions, newest first, beyond the recent ones the poll carries. */
   listSessions: (
     projectId: string,
@@ -291,7 +291,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setPending((previous) => withoutConfirmedPending(previous, id, applied.turns));
       if (countUserItems(applied.turns) > 0) starting.current.delete(id);
       if (applied.busy !== undefined) setBusy((previous) => withValue(previous, id, applied.busy!));
-      if (applied.question !== undefined) showQuestion(id, applied.question);
+      for (const question of applied.questions) showQuestion(id, question);
       if (applied.older !== undefined)
         setWindowOlder((previous) => withValue(previous, id, applied.older!));
       const error = applied.error && !startupCatalogError(starting.current, id, applied.error)
@@ -520,9 +520,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [mutate],
   );
   const keepQuestionOpen = useCallback(
-    (conversationId: string, requestId: number) => {
-      // The countdown is only a convenience; the answer still goes if this fails.
-      mutate("session.keepQuestionOpen", { conversationId, requestId }).catch(() => {});
+    async (conversationId: string, requestId: number) => {
+      await mutate("session.keepQuestionOpen", { conversationId, requestId });
     },
     [mutate],
   );

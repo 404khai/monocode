@@ -49,19 +49,20 @@ describe("watch frames", () => {
     expect(applyFrames([], [{ order: ["a"], turns: [] }])).toBeNull();
   });
 
-  it("carries the latest question a burst sends, and leaves it alone when none does", () => {
+  it("preserves question transitions in a burst, including clears before reused IDs", () => {
     const question = {
       requestId: 4,
       questions: [{ id: "q", prompt: "Which?", multiSelect: false, allowCustom: true, options: [] }],
     };
-    expect(applyFrames([], [{ order: [], turns: [] }])!.question).toBeUndefined();
-    expect(applyFrames([], [{ order: [], turns: [], question }])!.question).toEqual(question);
+    expect(applyFrames([], [{ order: [], turns: [] }])!.questions).toEqual([]);
+    expect(applyFrames([], [{ order: [], turns: [], question }])!.questions).toEqual([question]);
     expect(
       applyFrames([], [
         { order: [], turns: [], question },
         { order: [], turns: [], question: null },
-      ])!.question,
-    ).toBeNull();
+        { order: [], turns: [], question },
+      ])!.questions,
+    ).toEqual([question, null, question]);
   });
 
   it("carries an error until the next good frame", () => {

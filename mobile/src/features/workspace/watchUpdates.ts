@@ -80,12 +80,13 @@ export function applyFrames(
   turns: Turn[];
   busy?: boolean;
   older?: boolean;
-  question?: QuestionPrompt | null;
+  /** Ordered transitions: a clear allows a later question to reuse its ID. */
+  questions: (QuestionPrompt | null)[];
   error?: string;
 } | null {
   let turns = previous;
   let busy: boolean | undefined;
-  let question: QuestionPrompt | null | undefined;
+  const questions: (QuestionPrompt | null)[] = [];
   let older: boolean | undefined;
   let error: string | undefined;
   for (const frame of frames) {
@@ -96,7 +97,7 @@ export function applyFrames(
     error = undefined;
     if (frame.busy !== undefined) busy = frame.busy;
     if (frame.older !== undefined) older = frame.older;
-    if (frame.question !== undefined) question = frame.question;
+    if (frame.question !== undefined) questions.push(frame.question);
     if (!frame.order) continue;
     const known = new Map(turns.map((turn) => [turn.id, turn]));
     for (const turn of frame.turns ?? []) known.set(turn.id, turn);
@@ -123,5 +124,5 @@ export function applyFrames(
         ? turns
         : next;
   }
-  return { turns, busy, older, question, error };
+  return { turns, busy, older, questions, error };
 }

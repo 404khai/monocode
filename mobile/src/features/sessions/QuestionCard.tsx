@@ -42,7 +42,7 @@ export function QuestionCard({
   const colors = useColors();
   const { height } = useWindowDimensions();
   const { answerQuestion, keepQuestionOpen } = useWorkspace();
-  const kept = useRef<number | null>(null);
+  const kept = useRef<{ conversationId: string; requestId: number } | null>(null);
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
@@ -118,10 +118,18 @@ export function QuestionCard({
     <CustomInput value={custom[question.id] ?? ""} onChange={type} />
   );
 
-  const interact = () => {
-    if (prompt.autoResolveAt == null || kept.current === prompt.requestId) return;
-    kept.current = prompt.requestId;
-    keepQuestionOpen(conversationId, prompt.requestId);
+  const interact = async () => {
+    if (prompt.autoResolveAt == null || (
+      kept.current?.conversationId === conversationId && kept.current.requestId === prompt.requestId
+    )) return;
+    const attempt = { conversationId, requestId: prompt.requestId };
+    kept.current = attempt;
+    try {
+      await keepQuestionOpen(conversationId, prompt.requestId);
+    } catch {
+      // A later touch can retry; never duplicate a request still in flight.
+      if (kept.current === attempt) kept.current = null;
+    }
   };
 
   return (
