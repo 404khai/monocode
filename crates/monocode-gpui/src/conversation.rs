@@ -3228,14 +3228,20 @@ impl Conversation {
             follow_up.map_or("send", |(_, glyph)| glyph),
             enabled,
         )
-        .on_click(cx.listener(move |this, _, _, cx| {
+        .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
             if !enabled {
                 return;
             }
             if busy {
                 this.stop(cx);
             } else {
-                this.send(cx);
+                let modifiers = event.modifiers();
+                let alternate = if cfg!(target_os = "macos") {
+                    modifiers.platform
+                } else {
+                    modifiers.control
+                };
+                this.send_follow_up(alternate, cx);
             }
         }))
     }
@@ -3805,6 +3811,7 @@ fn send_button(
     let accent = primary_action(enabled);
     div()
         .id(id)
+        .debug_selector(|| id.into())
         .role(Role::Button)
         .aria_label(label)
         .cursor_pointer()
