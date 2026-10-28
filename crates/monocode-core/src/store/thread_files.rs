@@ -1,11 +1,10 @@
 //! Files the app writes on a conversation's behalf, such as pasted images, live
-//! in `<data dir>/threads/<session>/` so deleting the conversation removes them.
+//! beside the database in `<database>.threads/<session>/` so deleting the conversation removes them.
 //! Files the user attached from elsewhere on disk are only referenced, never
 //! copied here, and never deleted.
 use super::Store;
 use std::path::{Path, PathBuf};
 
-const ROOT: &str = "threads";
 const ATTACHMENTS: &str = "attachments";
 const REMOTE_PREFIX: &str = "remote:";
 /// Encoded names start with this so they never collide with a plain id.
@@ -44,7 +43,12 @@ fn session_id(folder: &str) -> Option<String> {
 
 impl Store {
     fn threads_root(&self) -> Option<PathBuf> {
-        self.data_dir().map(|dir| dir.join(ROOT))
+        // The old shared `threads` directory has no database ownership; leave it intact.
+        self.data_dir()?;
+        let path = std::fs::canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
+        let mut root = path.into_os_string();
+        root.push(".threads");
+        Some(root.into())
     }
     /// The conversation's own folder, or `None` for in-memory stores.
     pub fn thread_dir(&self, id: i64) -> Result<Option<PathBuf>, String> {
@@ -60,22 +64,29 @@ impl Store {
         Ok(self.thread_dir(id)?.map(|dir| dir.join(ATTACHMENTS)))
     }
     /// Moves files from `staging` into the conversation's attachment folder and
-    /// returns the updated paths. Paths outside `staging` belong to the user and
-    /// are returned unchanged.
+    /// returns the updated paths. Only app-created files contained in `staging`
+    /// are moved; other paths are returned unchanged.
     pub fn adopt_attachments(
         &self,
         id: i64,
         staging: &Path,
         paths: Vec<PathBuf>,
+        staged: &[PathBuf],
     ) -> Result<Vec<PathBuf>, String> {
         let Some(dir) = self.thread_attachments_dir(id)? else {
             return Ok(paths);
         };
+        let staging = staging.canonicalize().ok();
         let mut created = false;
         paths
             .into_iter()
             .map(|path| {
-                let (true, Some(name)) = (path.starts_with(staging), path.file_name()) else {
+                let contained = staging.as_ref().is_some_and(|root| {
+                    path.canonicalize()
+                        .is_ok_and(|resolved| resolved.starts_with(root))
+                });
+                let (true, Some(name)) = (staged.contains(&path) && contained, path.file_name())
+                else {
                     return Ok(path);
                 };
                 if !created {
@@ -194,7 +205,7 @@ mod tests {
         assert!(!deleted_dir.exists());
         assert!(kept_dir.exists());
 
-        let root = temp.path().join(ROOT);
+        let root = store.threads_root().unwrap();
         let orphan = root.join(folder_name("gone"));
         let remote = root.join(folder_name("remote:env:1"));
         std::fs::create_dir_all(&orphan).unwrap();
@@ -213,16 +224,80 @@ mod tests {
         let staging = temp.path().join("staging");
         std::fs::create_dir_all(&staging).unwrap();
         let staged = staging.join("pasted-1.png");
-        let user = temp.path().join("photo.png");
+        let user = staging.join("photo.png");
         std::fs::write(&staged, b"a").unwrap();
         std::fs::write(&user, b"b").unwrap();
 
         let paths = store
-            .adopt_attachments(id, &staging, vec![staged.clone(), user.clone()])
+            .adopt_attachments(
+                id,
+                &staging,
+                vec![staged.clone(), user.clone()],
+                std::slice::from_ref(&staged),
+            )
             .unwrap();
         let dir = store.thread_attachments_dir(id).unwrap().unwrap();
         assert_eq!(paths, vec![dir.join("pasted-1.png"), user.clone()]);
         assert!(!staged.exists());
         assert!(paths[0].exists() && user.exists());
+    }
+    #[test]
+    fn sweep_preserves_other_database_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let live = Store::open_monocode(&temp.path().join("live.db")).unwrap();
+        let backup = Store::open_monocode(&temp.path().join("backup.db")).unwrap();
+        let id = live.create("claude", "/tmp").unwrap().id;
+        let image = live
+            .thread_attachments_dir(id)
+            .unwrap()
+            .unwrap()
+            .join("image.png");
+        std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+        std::fs::write(&image, b"image").unwrap();
+        let legacy = temp.path().join("threads/legacy/attachments/image.png");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, b"legacy").unwrap();
+        backup.sweep_thread_dirs().unwrap();
+        assert!(legacy.exists(), "backup sweep deleted a legacy image");
+        assert!(
+            image.exists(),
+            "backup sweep deleted the live database image"
+        );
+    }
+
+    #[test]
+    fn adopting_parent_escape_preserves_original() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open_monocode(&temp.path().join("sessions.db")).unwrap();
+        let id = store.create("claude", "/tmp").unwrap().id;
+        let staging = temp.path().join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        let original = temp.path().join("image.png");
+        std::fs::write(&original, b"image").unwrap();
+        let path = staging.join("..").join("image.png");
+        store
+            .adopt_attachments(id, &staging, vec![path.clone()], &[path])
+            .unwrap();
+        store.delete(id).unwrap();
+        assert!(original.exists(), "parent escape moved the original");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adopting_symlink_escape_preserves_original() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open_monocode(&temp.path().join("sessions.db")).unwrap();
+        let id = store.create("claude", "/tmp").unwrap().id;
+        let staging = temp.path().join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        let original = temp.path().join("image.png");
+        std::fs::write(&original, b"image").unwrap();
+        std::os::unix::fs::symlink(temp.path(), staging.join("link")).unwrap();
+        let path = staging.join("link/image.png");
+        store
+            .adopt_attachments(id, &staging, vec![path.clone()], &[path])
+            .unwrap();
+        store.delete(id).unwrap();
+        assert!(original.exists(), "symlink escape moved the original");
     }
 }
