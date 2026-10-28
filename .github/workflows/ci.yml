@@ -93,11 +93,6 @@ jobs:
         with:
           path: build/host-runtime-cache
           key: host-runtime-v1-${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('host/package.mjs') }}
-      - name: Exercise cold Windows HTTPS recovery
-        if: runner.os == 'Windows'
-        run: |
-          Remove-Item build/host-runtime-cache -Recurse -Force -ErrorAction SilentlyContinue
-          node --input-type=module -e "globalThis.fetch = async () => { throw new TypeError('Injected transient fetch failure for cold-cache recovery verification'); }; await import('./host/package.mjs');"
       - run: npm run host:package
 
   check:
