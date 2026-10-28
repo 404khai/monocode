@@ -642,8 +642,10 @@ pub(crate) struct Shell {
     /// The live agents card's spinners, apart from the sidebar rows' marks.
     live_marks: HashMap<i64, Entity<SessionMark>>,
     live_agents_expanded: bool,
-    /// Repaints the live agents card's elapsed times once a second.
+    /// Repaints the live agents card when one of its elapsed times changes.
     live_tick: Option<gpui::Task<()>>,
+    /// Milliseconds until the next elapsed label in the live agents card changes.
+    live_next_change: u64,
     busy_sessions: HashSet<i64>,
     notification_state: notifications::State,
     quick: crate::quick_composer::Controller,
@@ -1005,6 +1007,7 @@ impl Shell {
             live_marks: HashMap::new(),
             live_agents_expanded: false,
             live_tick: None,
+            live_next_change: 1000,
             busy_sessions: HashSet::new(),
             notification_state,
             quick: Default::default(),
@@ -3262,7 +3265,9 @@ impl Shell {
                     self.terminals
                         .get(&project)
                         .and_then(|t| t.get(dock.active))
-                        .cloned(),
+                        // The grid shapes every line; redraw it only when the
+                        // terminal itself changes.
+                        .map(|t| t.clone().cached(StyleRefinement::default().size_full())),
                 ),
             );
         let sash = div()

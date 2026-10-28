@@ -3071,6 +3071,16 @@ impl App {
 
     /// Tell GPUI that an entity has changed and observers of it should be notified.
     pub fn notify(&mut self, entity_id: EntityId) {
+        self.notify_windows(entity_id, true);
+    }
+
+    /// Like [`Self::notify`], for a change that keeps every element's size,
+    /// such as an animation step. See [`Window::view_layout_dirty`].
+    pub fn notify_paint(&mut self, entity_id: EntityId) {
+        self.notify_windows(entity_id, false);
+    }
+
+    fn notify_windows(&mut self, entity_id: EntityId, layout: bool) {
         let window_invalidators = mem::take(
             self.window_invalidators_by_entity
                 .entry(entity_id)
@@ -3098,7 +3108,11 @@ impl App {
             }
         } else {
             for invalidator in &live_invalidators {
-                invalidator.invalidate_view(entity_id, self);
+                if layout {
+                    invalidator.invalidate_view(entity_id, self);
+                } else {
+                    invalidator.invalidate_view_paint(entity_id, self);
+                }
             }
         }
 

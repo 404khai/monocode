@@ -30,13 +30,7 @@ pub(crate) fn start(cx: &mut App) {
         let mut trimmed: Option<Instant> = None;
         loop {
             cx.background_executor().timer(CHECK).await;
-            let active = cx.update(|cx| {
-                cx.windows().into_iter().any(|handle| {
-                    handle
-                        .update(cx, |_, window, _| window.is_window_active())
-                        .unwrap_or(false)
-                })
-            });
+            let active = cx.update(crate::pulse::app_active);
             let now = Instant::now();
             if active {
                 if inactive_since.take().is_some() {
