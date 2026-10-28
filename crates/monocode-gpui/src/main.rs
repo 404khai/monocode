@@ -467,6 +467,10 @@ fn main() {
                     ..Default::default()
                 },
                 |window, cx| {
+                    // Install the menu one frame later, after the first frame presents.
+                    window.on_next_frame(|window, _| {
+                        window.on_next_frame(|_, cx| app_menu::ready(cx));
+                    });
                     let shell = cx.new(|cx| {
                         shell::Shell::new_with_metadata(
                             db,
