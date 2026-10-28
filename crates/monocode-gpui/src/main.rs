@@ -473,6 +473,23 @@ fn main() {
                     window.on_next_frame(|window, _| {
                         window.on_next_frame(|_, cx| app_menu::ready(cx));
                     });
+                    // Off the launch path: it lists every conversation folder.
+                    let cleanup = db.clone();
+                    window.on_next_frame(move |_, cx| {
+                        cx.background_executor()
+                            .spawn(async move {
+                                let result = cleanup
+                                    .lock()
+                                    .map_err(|error| error.to_string())
+                                    .and_then(|store| store.sweep_thread_dirs());
+                                if let Err(error) = result {
+                                    eprintln!(
+                                        "Cannot clean up deleted conversations' files: {error}"
+                                    );
+                                }
+                            })
+                            .detach();
+                    });
                     let shell = cx.new(|cx| {
                         shell::Shell::new_with_metadata(
                             db,
