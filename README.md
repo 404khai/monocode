@@ -8,12 +8,12 @@
   <strong>A GUI for your coding agents.</strong>
 </p>
 
-> [!NOTE]
-> **Try the new [Monocode Native preview](https://github.com/hardbeat920/monocode/releases)**, our experimental Rust + GPUI app for macOS, Linux and Windows. Read the [preview details](#monocode-native-preview) before installing.
-
 <p align="center">
   <img width="1680" height="1050" alt="MonoCode with agent sessions open side by side" src="https://github.com/user-attachments/assets/2cd4a6ec-eb1e-4b45-8627-a76442ea3874" />
 </p>
+
+> [!NOTE]
+> **Try the new [Monocode Native preview](https://github.com/hardbeat920/monocode/releases)**, our experimental Rust + GPUI app for macOS, Linux and Windows. Read the [preview details](#monocode-native-preview) before installing.
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Antigravity, Pi, omp, fx, Hermes Agent, and Devin. If they’re installed and logged in, MonoCode can run them. Tabs are sessions. The composer is the input. MonoCode does not sell tokens.
 
