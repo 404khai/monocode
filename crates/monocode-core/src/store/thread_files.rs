@@ -2,6 +2,10 @@
 //! beside the database in `<database>.threads/<session>/` so deleting the conversation removes them.
 //! Files the user attached from elsewhere on disk are only referenced, never
 //! copied here, and never deleted.
+//!
+//! Older builds used a shared `threads/` directory. It is deliberately left
+//! intact, even on deletion: another database or backup may reference its files.
+//! Legacy files require manual cleanup after all references are no longer needed.
 use super::Store;
 use std::path::{Path, PathBuf};
 
@@ -263,6 +267,32 @@ mod tests {
             image.exists(),
             "backup sweep deleted the live database image"
         );
+    }
+
+    #[test]
+    fn deleting_conversation_preserves_legacy_files_shared_with_backup() {
+        let temp = tempfile::tempdir().unwrap();
+        let live = Store::open_monocode(&temp.path().join("live.db")).unwrap();
+        let id = live.create("claude", "/tmp").unwrap().id;
+        let persisted = live.persisted_session_id(id).unwrap();
+        drop(live);
+        std::fs::copy(temp.path().join("live.db"), temp.path().join("backup.db")).unwrap();
+        let mut live = Store::open_monocode(&temp.path().join("live.db")).unwrap();
+        let backup = Store::open_monocode(&temp.path().join("backup.db")).unwrap();
+        assert!(backup.session_row_exists(&persisted).unwrap());
+        let id = live.resolve_session_id(&persisted).unwrap();
+        let image = temp
+            .path()
+            .join("threads")
+            .join(folder_name(&persisted))
+            .join("attachments/image.png");
+        std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+        std::fs::write(&image, b"legacy").unwrap();
+
+        live.delete(id).unwrap();
+        live.sweep_thread_dirs().unwrap();
+        backup.sweep_thread_dirs().unwrap();
+        assert_eq!(std::fs::read(image).unwrap(), b"legacy");
     }
 
     #[test]
