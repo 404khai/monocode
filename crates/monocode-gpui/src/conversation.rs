@@ -700,17 +700,9 @@ impl Conversation {
         self.refresh_catalog(cx);
         let store = self.store.clone();
         let id = self.summary.id;
-        let cwd = self.summary.cwd.clone();
         let mono = self.settings.mono.is_some();
         let work = cx.background_executor().spawn(async move {
             let settings = locked(&store).and_then(|s| s.agent_settings(id));
-            let execution_cwd = settings
-                .as_ref()
-                .ok()
-                .and_then(|s| s.as_ref())
-                .and_then(|s| s.worktree_cwd.as_deref())
-                .unwrap_or(&cwd);
-            let git = crate::git_cache::load(Path::new(execution_cwd)).ok();
             (
                 locked(&store)
                     .and_then(|s| {
@@ -728,7 +720,6 @@ impl Conversation {
                             edits,
                         )
                     }),
-                git,
                 settings,
                 locked(&store).and_then(|s| s.context_usage(id)),
                 locked(&store).and_then(|s| s.follow_ups(id)),
@@ -736,11 +727,9 @@ impl Conversation {
             )
         });
         cx.spawn(async move |this, cx| {
-            let (result, git, settings, context, follow_ups, before) = work.await;
+            let (result, settings, context, follow_ups, before) = work.await;
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
-                this.branch = git.as_ref().and_then(|s| s.current.clone());
-                this.git = git;
                 this.context = context.ok().flatten();
                 match follow_ups {
                     Ok(state) => {
@@ -755,6 +744,7 @@ impl Conversation {
                     }
                     Err(error) => {
                         this.status = error;
+                        this.load_git(cx);
                         return;
                     }
                 }
@@ -808,6 +798,12 @@ impl Conversation {
                     }
                     Err(e) => this.status = e,
                 }
+                // Git can take tens of milliseconds; history shows first.
+                if let Some(git) = crate::git_cache::get(this.execution_cwd()) {
+                    this.branch = git.current.clone();
+                    this.git = Some(git);
+                }
+                this.load_git(cx);
                 this.mono_flush_external(cx);
                 cx.emit(SessionChanged);
                 cx.notify();
@@ -1695,6 +1691,9 @@ impl Conversation {
     }
     fn refresh_git(&mut self, cx: &mut Context<Self>) {
         self.sync_review(cx);
+        self.load_git(cx);
+    }
+    fn load_git(&mut self, cx: &mut Context<Self>) {
         let cwd = self.execution_cwd().to_owned();
         let work_cwd = cwd.clone();
         let work = cx
@@ -3445,12 +3444,12 @@ mod composer_motion_tests {
                                             <= 2.
                                 })
                                 .expect("the composer paints React's content-3% surface");
-                            #[cfg(target_os = "macos")]
+                            #[cfg(any(target_os = "macos", target_os = "windows"))]
                             assert_eq!(
                                 surface.border_color,
-                                gpui_apple::metal_renderer::backdrop_blur_marker(24. * scale)
+                                gpui::backdrop_blur_marker(24. * scale)
                             );
-                            #[cfg(not(target_os = "macos"))]
+                            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
                             let _ = surface;
                             assert!(window.painted_quads().iter().any(|quad| {
                                 quad.border_color == content(0.2)
@@ -3727,15 +3726,13 @@ fn composer_surface(radius: f32) -> impl IntoElement {
         |_, _, _| {},
         move |bounds, _, window, _| {
             let surface = gpui::fill(bounds, fill).corner_radii(px(radius - 1.));
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             let surface = if blur > 0. {
-                surface.border_color(gpui_apple::metal_renderer::backdrop_blur_marker(
-                    blur * window.scale_factor(),
-                ))
+                surface.border_color(gpui::backdrop_blur_marker(blur * window.scale_factor()))
             } else {
                 surface
             };
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let _ = blur;
             window.paint_quad(surface);
         },
