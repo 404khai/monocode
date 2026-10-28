@@ -31,6 +31,7 @@ mod git_cache;
 mod git_graph;
 mod git_picker;
 mod git_status;
+mod gpu_trim;
 #[cfg(target_os = "macos")]
 mod hang_watchdog;
 mod history;
@@ -408,6 +409,7 @@ fn main() {
             image_memory::init(cx);
             #[cfg(target_os = "macos")]
             memory_log::start(cx);
+            gpu_trim::start(cx);
             #[cfg(target_os = "macos")]
             hang_watchdog::start(database.with_file_name("gpui-hangs"), cx);
             input::bind(cx);

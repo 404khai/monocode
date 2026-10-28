@@ -1309,6 +1309,17 @@ impl App {
         self.pending_effects.push_back(Effect::RefreshWindows);
     }
 
+    /// Empty every window's sprite atlas and redraw them all, so glyphs, icons
+    /// and images come back only for what is on screen. Atlases otherwise keep
+    /// everything ever drawn. A window mid-update is skipped, so call this
+    /// from a task rather than inside a window's update.
+    pub fn clear_sprite_atlases(&mut self) {
+        for window in self.windows.values_mut().flatten() {
+            window.sprite_atlas.clear();
+        }
+        self.refresh_windows();
+    }
+
     #[inline(always)]
     pub(crate) fn update<R>(&mut self, update: impl FnOnce(&mut Self) -> R) -> R {
         self.start_update();
@@ -3010,6 +3021,16 @@ impl App {
     pub fn remove_asset<A: Asset>(&mut self, source: &A::Source) {
         let asset_id = (TypeId::of::<A>(), hash(source));
         self.loading_assets.remove(&asset_id);
+    }
+
+    /// Remove an asset from the cache and return its result if it had loaded.
+    pub fn take_asset<A: Asset>(&mut self, source: &A::Source) -> Option<A::Output> {
+        let asset_id = (TypeId::of::<A>(), hash(source));
+        self.loading_assets
+            .remove(&asset_id)?
+            .downcast::<crate::asset_cache::CachedLoad<A::Output>>()
+            .ok()?
+            .get()
     }
 
     /// Check whether an asset is present in GPUI's cache (loading or loaded),

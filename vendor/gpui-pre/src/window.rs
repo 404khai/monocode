@@ -1222,7 +1222,7 @@ pub struct Window {
     pub(crate) display_observers: SubscriberSet<(), AnyObserver>,
     is_resizable: bool,
     is_minimizable: bool,
-    sprite_atlas: Arc<dyn PlatformAtlas>,
+    pub(crate) sprite_atlas: Arc<dyn PlatformAtlas>,
     text_system: Arc<WindowTextSystem>,
     text_rendering_mode: Rc<Cell<TextRenderingMode>>,
     rem_size: Pixels,
