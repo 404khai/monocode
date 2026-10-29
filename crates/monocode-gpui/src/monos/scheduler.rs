@@ -1606,7 +1606,7 @@ impl Monos {
         }
         let report = ok
             .then(|| {
-                habits::report(&monocode_core::response::prose(
+                habits::report(&monocode_core::response::final_prose(
                     run.view.read(cx).mono_rows(cx),
                 ))
             })
