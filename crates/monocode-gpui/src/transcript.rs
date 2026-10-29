@@ -620,7 +620,7 @@ pub(crate) struct TranscriptView {
     viewport: Bounds<Pixels>,
     anchor_turn: Option<usize>,
     prompt_rise: Option<(usize, Instant)>,
-    /// The /operator, Plan or Orchestrator burst inside a just-sent prompt.
+    /// The mode or /visualize burst inside a just-sent prompt.
     burst: Option<burst::Burst>,
     prompt_rise_pending: bool,
     introduced_prompt: Option<usize>,
@@ -2783,7 +2783,7 @@ impl TranscriptView {
         }
         submitted.begin("assistant");
         if !settings.internal_message && !self.mono && self.visible && !cx.reduce_motion() {
-            self.burst = burst::Kind::from_settings(settings)
+            self.burst = burst::Kind::from_prompt(prompt, settings)
                 .map(|kind| burst::Burst::new(self.source.len(), kind));
         }
         if self.mono {
@@ -5063,6 +5063,10 @@ impl TranscriptView {
                     .into_any_element()
             }
             Body::Plain(text) => {
+                let burst = self.burst.filter(|burst| {
+                    user && first && burst.prompt == message_start && burst.active(self.frame_now)
+                });
+                let now = self.frame_now;
                 // UserLinkPreview: the prompt's first link, drawn in its chunk.
                 let message_link = self.messages[row.message].user_link.clone();
                 let link = message_link
@@ -5101,7 +5105,7 @@ impl TranscriptView {
                             .child(
                                 canvas(
                                     |_, _, _| {},
-                                    move |bounds, _, window, _| {
+                                    move |bounds, _, window, cx| {
                                         // Match React's measured single-line bubble, including
                                         // when a window resize makes the same text wrap.
                                         let radius =
@@ -5110,20 +5114,20 @@ impl TranscriptView {
                                             } else {
                                                 12.
                                             };
+                                        let corners = gpui::Corners {
+                                            top_left: px(if first { radius } else { 0. }),
+                                            top_right: px(if first { radius } else { 0. }),
+                                            bottom_left: px(if last { radius } else { 0. }),
+                                            bottom_right: px(if last { radius } else { 0. }),
+                                        };
                                         window.paint_quad(
-                                            gpui::fill(bounds, user_bubble_fill()).corner_radii(
-                                                gpui::Corners {
-                                                    top_left: px(if first { radius } else { 0. }),
-                                                    top_right: px(if first { radius } else { 0. }),
-                                                    bottom_left: px(if last { radius } else { 0. }),
-                                                    bottom_right: px(if last {
-                                                        radius
-                                                    } else {
-                                                        0.
-                                                    }),
-                                                },
-                                            ),
+                                            gpui::fill(bounds, user_bubble_fill())
+                                                .corner_radii(corners),
                                         );
+                                        if let Some(burst) = burst.filter(burst::Burst::behind_text)
+                                        {
+                                            burst.paint(bounds, corners, now, window, cx);
+                                        }
                                     },
                                 )
                                 .absolute()
@@ -5181,40 +5185,32 @@ impl TranscriptView {
                             )
                         })
                     })
-                    .children(
-                        self.burst
-                            .filter(|burst| {
-                                user && first
-                                    && burst.prompt == message_start
-                                    && burst.active(self.frame_now)
-                            })
-                            .map(|burst| {
-                                let now = self.frame_now;
-                                canvas(
-                                    |_, _, _| {},
-                                    move |bounds, _, window, cx| {
-                                        // The same corners the bubble's fill paints.
-                                        let radius = if last && bounds.size.height <= px(37.) {
-                                            f32::from(bounds.size.height) * 0.5
-                                        } else {
-                                            12.
-                                        };
-                                        let bottom = px(if last { radius } else { 0. });
-                                        let corners = gpui::Corners {
-                                            top_left: px(radius),
-                                            top_right: px(radius),
-                                            bottom_left: bottom,
-                                            bottom_right: bottom,
-                                        };
-                                        burst.paint(bounds, corners, now, window, cx);
-                                    },
-                                )
-                                .absolute()
-                                .top_0()
-                                .left_0()
-                                .size_full()
-                            }),
-                    )
+                    .children(burst.filter(|burst| !burst.behind_text()).map(|burst| {
+                        let now = self.frame_now;
+                        canvas(
+                            |_, _, _| {},
+                            move |bounds, _, window, cx| {
+                                // The same corners the bubble's fill paints.
+                                let radius = if last && bounds.size.height <= px(37.) {
+                                    f32::from(bounds.size.height) * 0.5
+                                } else {
+                                    12.
+                                };
+                                let bottom = px(if last { radius } else { 0. });
+                                let corners = gpui::Corners {
+                                    top_left: px(radius),
+                                    top_right: px(radius),
+                                    bottom_left: bottom,
+                                    bottom_right: bottom,
+                                };
+                                burst.paint(bounds, corners, now, window, cx);
+                            },
+                        )
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                    }))
                     .when(overflows, |d| {
                         d.child(
                             div().flex().child(

@@ -8,12 +8,12 @@ use gpui::{
 };
 
 /// Cell side in logical pixels.
-pub(super) const CELL: f32 = 3.;
+pub(crate) const CELL: f32 = 3.;
 const BAYER4: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
 /// Whether the cell at (col, row) is inked for `tone`. Thresholds sit
 /// halfway between steps, so a tone of 0.25 inks exactly a quarter.
-pub(super) fn inked(col: i32, row: i32, tone: f32) -> bool {
+pub(crate) fn inked(col: i32, row: i32, tone: f32) -> bool {
     tone > (BAYER4[((row & 3) * 4 + (col & 3)) as usize] as f32 + 0.5) / 16.
 }
 
@@ -24,7 +24,7 @@ pub(super) fn light() -> bool {
 }
 
 /// A grid of cells from a pixel-snapped origin.
-pub(super) struct Grid {
+pub(crate) struct Grid {
     pub origin: Point<Pixels>,
     pub cols: i32,
     pub rows: i32,

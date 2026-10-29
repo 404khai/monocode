@@ -131,6 +131,7 @@ impl Completion {
                 "/btw",
                 "/stage",
                 "/commit",
+                "/visualize",
             ]
             .map(str::to_owned)
             .into_iter()
@@ -199,6 +200,7 @@ impl Completion {
             "/btw",
             "/stage",
             "/commit",
+            "/visualize",
         ]
         .map(str::to_owned)
         .into_iter()
@@ -508,6 +510,7 @@ impl Completion {
                     "/btw",
                     "/stage",
                     "/commit",
+                    "/visualize",
                 ]
                 .map(str::to_owned)
                 .into_iter()
@@ -662,6 +665,11 @@ impl Completion {
                     "Commit",
                     "Stage and commit this session's changes",
                 ),
+                (
+                    "visualize",
+                    "Visualize",
+                    "Create an inline visual of this topic or a specific request",
+                ),
             ]
             .into_iter()
             .enumerate()
@@ -692,8 +700,11 @@ impl Completion {
                             label: label.into(),
                             detail: detail.into(),
                             insertion: format!("/{id}"),
-                            mode: (!matches!(id, "compact" | "btw" | "stage" | "commit"))
-                                .then_some(id),
+                            mode: (!matches!(
+                                id,
+                                "compact" | "btw" | "stage" | "commit" | "visualize"
+                            ))
+                            .then_some(id),
                             file: false,
                             server: None,
                         },
@@ -1166,6 +1177,7 @@ mod tests {
                         "/mcp",
                         "/stage",
                         "/commit",
+                        "/visualize",
                         "/alpha",
                         "/zebra",
                     ]
@@ -1255,6 +1267,30 @@ mod tests {
             })
             .unwrap();
         assert_eq!(submitted.get(), 0);
+    }
+    #[gpui::test]
+    fn visualize_completion_inserts_a_command_without_selecting_a_mode(cx: &mut TestAppContext) {
+        let window = window(cx);
+        window
+            .update(cx, |view, _, cx| {
+                view.input
+                    .update(cx, |input, cx| input.set_text("/vis".into(), cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |view, _, _| {
+                assert_eq!(view.choices[0].insertion, "/visualize");
+                assert_eq!(view.choices[0].mode, None);
+            })
+            .unwrap();
+        cx.simulate_keystrokes(window.into(), "enter");
+        cx.run_until_parked();
+        window
+            .update(cx, |view, _, cx| {
+                assert_eq!(view.input.read(cx).content, "/visualize ");
+            })
+            .unwrap();
     }
     #[gpui::test]
     fn compact_completion_inserts_a_local_command_without_mode_selection(cx: &mut TestAppContext) {
