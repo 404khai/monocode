@@ -103,6 +103,11 @@ impl Profile {
             .ok_or_else(|| format!("Could not find the {} home directory", kind.label()))
     }
     pub fn apply(&self, kind: Kind, command: &mut Command) -> Result<(), String> {
+        if kind == Kind::Claude {
+            // Identify as Monocode; an inherited `sdk-cli` is metered at a higher
+            // subscription rate (anthropics/claude-code#97074).
+            command.env("CLAUDE_CODE_ENTRYPOINT", "monocode");
+        }
         let Some(dir) = self.directory(kind)? else {
             return Ok(());
         };

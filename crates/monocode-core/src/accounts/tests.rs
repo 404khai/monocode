@@ -248,3 +248,18 @@ for line in sys.stdin:
         assert!(profile.identity(Kind::Codex).is_none());
     }
 }
+
+#[test]
+fn claude_processes_identify_as_monocode_for_every_profile() {
+    let root = tempfile::tempdir().unwrap();
+    for profile in [Profile::default(), Profile::new("work-1", root.path())] {
+        let mut command = Command::new("provider");
+        command.env("CLAUDE_CODE_ENTRYPOINT", "sdk-cli");
+        profile.apply(Kind::Claude, &mut command).unwrap();
+        let env: HashMap<_, _> = command.get_envs().collect();
+        assert_eq!(
+            env[std::ffi::OsStr::new("CLAUDE_CODE_ENTRYPOINT")],
+            Some(std::ffi::OsStr::new("monocode"))
+        );
+    }
+}
