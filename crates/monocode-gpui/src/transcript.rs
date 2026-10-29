@@ -357,6 +357,32 @@ impl Follow {
     }
 }
 
+/// Whether the Mono has said something the user can read in `from..to`: the
+/// opening sentence of any run there. A message the user sends after it reads
+/// as the next line of the chat, not as part of the prompt above.
+pub(crate) fn mono_spoke(source: &[Row], from: usize, to: usize) -> bool {
+    let mut working = false;
+    for (at, row) in source[from.min(to)..to].iter().enumerate() {
+        if row.is_prompt() {
+            working = false;
+        } else if row.first && row.role != "reasoning" {
+            if !working && row.role == "assistant" {
+                // One message spans its first row and the continuations after it.
+                let at = from.min(to) + at;
+                let text: String = std::iter::once(row)
+                    .chain(source[at + 1..to].iter().take_while(|r| !r.first))
+                    .map(|r| r.text.as_str())
+                    .collect();
+                let text = text.trim();
+                if !text.is_empty() && !text.starts_with("<reaction>") {
+                    return true;
+                }
+            }
+            working = true;
+        }
+    }
+    false
+}
 /// The first row of the prompt block that opens `turn`.
 pub(crate) fn prompt_start(source: &[Row], turn: usize) -> usize {
     let mut at = turn.min(source.len());
@@ -1571,7 +1597,14 @@ impl TranscriptView {
                 .source
                 .iter()
                 .rposition(Row::is_prompt)
-                .is_some_and(|prompt| prompt >= self.live_start)
+                .is_some_and(|prompt| {
+                    prompt >= self.live_start
+                        && !mono_spoke(
+                            &self.source,
+                            self.mono_group_start(prompt + 1),
+                            self.source.len(),
+                        )
+                })
     }
     /// Whether `at` sits in a completion run that continues the turn above,
     /// returning the turn that opens the group: groupMonoChatTurns.
@@ -1586,7 +1619,12 @@ impl TranscriptView {
                 .turns
                 .get(&turn)
                 .and_then(|info| info.joined_turn)
-                .filter(|&root| root < turn)
+                // A steer stays beside the prompt it joins only until the
+                // Mono has replied in words; after that, the chat reads in order.
+                .filter(|&root| {
+                    root < turn
+                        && !mono_spoke(&self.source, root, prompt_start(&self.source, turn))
+                })
                 .or_else(|| mono_continues(&self.source, turn))
             {
                 Some(previous) => turn = previous,
@@ -1621,6 +1659,22 @@ impl TranscriptView {
             .iter()
             .rposition(Row::is_prompt)
             .map_or(0, |prompt| prompt + 1);
+        // The Mono answers before it works: its opening sentence is a message
+        // as soon as it is complete, and stays one when the run goes on or the
+        // user steers it. Like every Mono message it appears whole, never
+        // streamed. Later commentary is work.
+        let start = self.source[..=at]
+            .iter()
+            .rposition(|r| r.first)
+            .unwrap_or(at);
+        let complete = (start + 1..self.source.len()).any(|i| self.source[i].first)
+            || !(self.streaming && start >= self.live_start);
+        if self.source[turn..start]
+            .iter()
+            .all(|r| !r.first || r.role == "reasoning")
+        {
+            return !complete;
+        }
         // Starting a request precedes delivery of its prompt. History remains
         // settled during that gap, even though it is still the source's tail.
         (self.streaming && at >= self.live_start && end == self.source.len())
@@ -6555,8 +6609,8 @@ mod scroll_tests {
                 "one set of actions, at the end of the group"
             );
             assert!(
-                view.mono_prose_hidden(1),
-                "prose before later work stays in the trail"
+                !view.mono_prose_hidden(1),
+                "the opening sentence shows before the work"
             );
             assert!(!view.mono_prose_hidden(3));
             assert!(
@@ -6568,7 +6622,15 @@ mod scroll_tests {
             view.streaming(true, cx);
             view.patch(6, vec![row("user", "And another thing")], cx);
             view.patch(7, vec![row("assistant", "Working on it")], cx);
-            assert!(view.mono_prose_hidden(7), "live prose waits in the trail");
+            assert!(
+                view.mono_prose_hidden(7),
+                "a Mono message appears whole, not while it streams"
+            );
+            view.patch(8, vec![row("tool", &start)], cx);
+            assert!(
+                !view.mono_prose_hidden(7),
+                "the finished opening sentence shows while the Mono works"
+            );
             view.set_pending(
                 vec![PendingMessage {
                     id: "q".into(),
@@ -6590,8 +6652,8 @@ mod scroll_tests {
                 .rposition(|r| matches!(r.body, Body::WorkLine { .. }))
                 .unwrap();
             assert!(
-                pending < header,
-                "a queued message sits above the running turn's work"
+                pending > header,
+                "a message queued after the Mono spoke follows its words"
             );
         });
     }

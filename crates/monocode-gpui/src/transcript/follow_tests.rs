@@ -275,7 +275,8 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
                 view.streaming(true, cx);
                 view.patch(
                     0,
-                    vec![row("user", "what"), row("assistant", "Opening thought")],
+                    // The Mono is still thinking: nothing said yet.
+                    vec![row("user", "what"), row("assistant", "")],
                     cx,
                 );
                 view.entrances.clear();
@@ -364,7 +365,7 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
                     .rows
                     .iter()
                     .any(|row| row.key.0 == 1 && matches!(row.body, Body::Markdown(_))),
-                "pre-steer prose is work, not a final answer between the user's messages"
+                "nothing was said between the user's messages"
             );
         };
         assert_alignment(cx);
@@ -419,6 +420,63 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
 }
 
 #[gpui::test]
+fn a_steer_after_the_mono_spoke_reads_in_order_as_a_new_turn(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.set_reduce_motion(true));
+    let view = cx.new(|_| {
+        let mut view = TranscriptView::new();
+        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+        view
+    });
+    view.update(cx, |view, cx| {
+        // Provider-side the steer joins the running turn; on screen it follows
+        // the Mono's opening sentence, and the rest of the reply comes after it.
+        view.turns.insert(
+            3,
+            monocode_core::agent::TurnInfo {
+                joined_turn: Some(1),
+                ..Default::default()
+            },
+        );
+        view.patch(
+            0,
+            vec![
+                row("user", "Check the recent changes"),
+                row("assistant", "I'll start a background review."),
+                row("user", "thanks"),
+                row("assistant", "The review is running now."),
+            ],
+            cx,
+        );
+        assert_eq!(view.mono_group_start(3), 3);
+        let at = |key: usize, user: bool| {
+            view.rows
+                .iter()
+                .position(|r| {
+                    r.key.0 == key
+                        && if user {
+                            matches!(r.body, Body::Plain(_))
+                        } else {
+                            matches!(r.body, Body::Markdown(_))
+                        }
+                })
+                .unwrap()
+        };
+        assert!(at(0, true) < at(1, false));
+        assert!(at(1, false) < at(2, true));
+        assert!(at(2, true) < at(3, false));
+        assert_eq!(
+            view.rows
+                .iter()
+                .filter(|r| matches!(r.body, Body::WorkLine { .. }))
+                .count(),
+            2,
+            "the Mono's words after the steer open a new turn"
+        );
+        assert!(!view.stacks_on_next(0));
+    });
+}
+
+#[gpui::test]
 fn mono_follow_ups_stay_above_thinking_until_the_final_answer(cx: &mut TestAppContext) {
     cx.update(|cx| cx.set_reduce_motion(true));
     let view = cx.new(|_| {
@@ -443,12 +501,8 @@ fn mono_follow_ups_stay_above_thinking_until_the_final_answer(cx: &mut TestAppCo
             }],
             cx,
         );
-        for text in ["", "Working on the answer"] {
+        for (text, spoke) in [("", false), ("Working on the answer", true)] {
             view.patch(1, vec![row("assistant", text)], cx);
-            assert!(
-                view.stacks_on_next(0),
-                "the original bubble keeps compact spacing above its queued follow-up"
-            );
             let pending = view
                 .rows
                 .iter()
@@ -459,10 +513,23 @@ fn mono_follow_ups_stay_above_thinking_until_the_final_answer(cx: &mut TestAppCo
                 .iter()
                 .position(|r| matches!(r.body, Body::WorkLine { turn: 1, .. }))
                 .unwrap();
-            assert!(
-                pending < thinking,
-                "a mid-turn message joins the prompt above Thinking"
-            );
+            if spoke {
+                // Once the Mono has said something, the chat reads in order.
+                assert!(!view.stacks_on_next(0));
+                assert!(
+                    pending > thinking,
+                    "a message sent after the Mono spoke follows its words"
+                );
+            } else {
+                assert!(
+                    view.stacks_on_next(0),
+                    "the original bubble keeps compact spacing above its queued follow-up"
+                );
+                assert!(
+                    pending < thinking,
+                    "a mid-turn message joins the prompt above Thinking"
+                );
+            }
             assert_eq!(
                 view.rows
                     .iter()
