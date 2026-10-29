@@ -6,6 +6,7 @@ pub mod cards;
 mod desktop;
 pub mod files;
 pub mod habits;
+pub mod heartbeat;
 pub mod memory;
 pub mod work;
 pub(crate) use desktop::codex_home;
@@ -59,6 +60,8 @@ pub struct Mono {
     pub pending_reports: Vec<String>,
     pub habit_sessions: Vec<i64>,
     pub seen_rows: usize,
+    /// Minutes of inactivity before a heartbeat; zero turns heartbeats off.
+    pub heartbeat_minutes: u32,
 }
 impl Default for Mono {
     fn default() -> Self {
@@ -81,6 +84,7 @@ impl Default for Mono {
             pending_reports: Vec::new(),
             habit_sessions: Vec::new(),
             seen_rows: 0,
+            heartbeat_minutes: heartbeat::DEFAULT_MINUTES,
         }
     }
 }
