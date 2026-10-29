@@ -2559,6 +2559,20 @@ impl TranscriptView {
         if self.streaming == streaming {
             return;
         }
+        // What the user already reads while the Mono works, such as its
+        // opening sentence, must not enter again when the run settles.
+        let shown: HashSet<usize> = if self.mono && !streaming {
+            let run = self
+                .source
+                .iter()
+                .rposition(|r| r.is_prompt())
+                .map_or(0, |i| i + 1);
+            (run..self.source.len())
+                .filter(|&at| self.source[at].first && !self.mono_prose_hidden(at))
+                .collect()
+        } else {
+            HashSet::new()
+        };
         self.streaming = streaming;
         if streaming {
             self.active_provider_turn_id = None;
@@ -2624,6 +2638,7 @@ impl TranscriptView {
                 let row = &self.source[at];
                 if row.first
                     && row.role == "assistant"
+                    && !shown.contains(&at)
                     && !row.text.trim_start().starts_with("<reaction>")
                 {
                     self.entrances.insert(at, now);

@@ -2087,3 +2087,38 @@ fn empty_and_unrevealed_replacements_do_not_reopen_previous_work(cx: &mut TestAp
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn a_mono_opening_sentence_already_shown_does_not_enter_again_when_the_run_ends(
+    cx: &mut TestAppContext,
+) {
+    cx.update(|cx| cx.set_reduce_motion(false));
+    let window = chat(cx);
+    window
+        .update(cx, |view, _, cx| {
+            view.smooth_reveal = false;
+            view.streaming(true, cx);
+            view.patch(
+                0,
+                vec![
+                    row("user", "check the changes"),
+                    row("assistant", "I'll start a review."),
+                    row("tool", "{}"),
+                ],
+                cx,
+            );
+            assert!(!view.mono_prose_hidden(1), "the opening sentence is on screen");
+            view.patch(3, vec![row("assistant", "Started it.")], cx);
+            view.entrances.clear();
+            view.streaming(false, cx);
+            assert!(
+                !view.entrances.contains_key(&1),
+                "the opening sentence must not flash in again"
+            );
+            assert!(
+                view.entrances.contains_key(&3),
+                "the reply held back while working still appears"
+            );
+        })
+        .unwrap();
+}
