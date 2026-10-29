@@ -4642,6 +4642,17 @@ impl TranscriptView {
             )
             .into_any_element()
     }
+    /// The first reply the user sent after `message`, queued ones included,
+    /// which answers any choices that message offered.
+    fn reply_after(&self, message: usize) -> Option<String> {
+        self.messages
+            .get(message + 1..)?
+            .iter()
+            .find(|m| m.role == "user")
+            .and_then(|m| self.source.get(m.start))
+            .map(|row| row.text.clone())
+            .or_else(|| self.pending.first().map(|p| p.text.to_string()))
+    }
     fn row_body(
         &mut self,
         ix: usize,
@@ -4668,8 +4679,17 @@ impl TranscriptView {
         let nested_phase = row.in_phase();
         let thought_header = matches!(row.body, Body::Reasoning);
         let attachments = message.attachments.clone();
-        let attachment_body = (user && first && !attachments.is_empty())
-            .then(|| self.attachment_row(&attachments, &format!("sent-{message_start}"), cx));
+        // A Mono's chat shows sent images above the bubble, like photos in a
+        // messaging app; only other files stay inside it.
+        let (photos, bubble_files) = if user && first && self.mono {
+            attachments::split_photos(&attachments)
+        } else {
+            (Vec::new(), attachments.to_vec())
+        };
+        let photo_body = (!photos.is_empty())
+            .then(|| self.photo_row(&photos, &format!("sent-{message_start}"), cx));
+        let attachment_body = (user && first && !bubble_files.is_empty())
+            .then(|| self.attachment_row(&bubble_files, &format!("sent-{message_start}"), cx));
         let step_opacity = self
             .motions
             .get(&row.key)
@@ -4757,7 +4777,10 @@ impl TranscriptView {
                     })
                     .into_any_element()
             }
-            Body::MonoCard(ref value) => crate::monos::cards::render(value, cx),
+            Body::MonoCard(ref value) => {
+                let chosen = self.reply_after(row.message);
+                crate::monos::cards::render(value, chosen.as_deref(), cx)
+            }
             Body::MonoDivider => mono_divider::render(),
             Body::Pending(_) | Body::Launch(_) | Body::Review { .. } | Body::SavedDraft => {
                 div().into_any_element()
@@ -5148,6 +5171,8 @@ impl TranscriptView {
                     .map(|(_, link)| link.clone());
                 let collapsed = !self.expanded_prompts.contains(&message_start);
                 let clamp = user && first && collapsed && message_link.is_none();
+                // Images sent on their own need no bubble beneath them.
+                let bare = photo_body.is_some() && text.is_empty() && attachment_body.is_none();
                 // `overflows`: hidden chunks, or more than four wrapped lines.
                 // React never clamps a message that shows a link preview.
                 let overflows = user
@@ -5156,8 +5181,8 @@ impl TranscriptView {
                     && (!first
                         || self.clamped_prompts.contains(&message_start)
                         || self.prompt_lines(&text, window) > 4);
-                div()
-                    .w_full()
+                let bubble = div()
+                    .when(photo_body.is_none(), |d| d.w_full())
                     .relative()
                     .flex()
                     .flex_col()
@@ -5166,7 +5191,7 @@ impl TranscriptView {
                     } else {
                         content(1.)
                     })
-                    .when(user, |d| {
+                    .when(user && !bare, |d| {
                         // AgentTranscript.tsx: text-sm (14px / 20px), px-3 py-2.
                         // Measurement shapes this font at the same size.
                         d.font(gpui::font(crate::fonts::UI))
@@ -5318,8 +5343,21 @@ impl TranscriptView {
                             && (self.hovered_prompt == Some(message_start)
                                 || self.hovered_prompt_actions == Some(message_start)),
                         |d| d.child(self.prompt_actions(message_start, cx)),
-                    )
-                    .into_any_element()
+                    );
+                match photo_body {
+                    // Photos and their bubble enter as one message.
+                    Some(photos) => div()
+                        .min_w_0()
+                        .max_w_full()
+                        .flex()
+                        .flex_col()
+                        .items_end()
+                        .gap_1()
+                        .child(photos)
+                        .child(bubble)
+                        .into_any_element(),
+                    None => bubble.into_any_element(),
+                }
             }
         };
         let body = if let Some((_, tail)) = row.thought_phase {

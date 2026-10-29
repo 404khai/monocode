@@ -1127,7 +1127,7 @@ fn details_tabs_share_the_session_titlebar_in_both_layouts(cx: &mut TestAppConte
         assert_eq!(toggle.left() - search.right(), px(4.));
         assert!(tabs.bottom() <= panel.top() + px(if classic { TITLE_BAR_HEIGHT } else { 0. }));
         assert_eq!(
-            visual.debug_bounds("mono-session-list").unwrap().top(),
+            visual.debug_bounds("mono-dashboard").unwrap().top(),
             panel.top() + px(if classic { TITLE_BAR_HEIGHT } else { 0. })
         );
         assert!(

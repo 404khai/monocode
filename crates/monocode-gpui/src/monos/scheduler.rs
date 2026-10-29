@@ -288,7 +288,7 @@ impl Monos {
         views
     }
 
-    fn habit_running_since(&self, habit: &Habit) -> Option<u64> {
+    pub(super) fn habit_running_since(&self, habit: &Habit) -> Option<u64> {
         self.running
             .values()
             .find(|r| r.habit == habit.id && self.active.as_deref() == Some(r.mono.as_str()))
@@ -357,8 +357,7 @@ impl Monos {
         } else {
             format!("Paused · {}", h.schedule.label())
         };
-        div()
-            .id(SharedString::from(format!("mono-habit-{id}")))
+        super::panels::outlined(div().id(SharedString::from(format!("mono-habit-{id}"))))
             .debug_selector({
                 let id = id.clone();
                 move || format!("mono-habit-{id}")
@@ -367,10 +366,8 @@ impl Monos {
             .w_full()
             .min_w_0()
             .flex_shrink_0()
-            .rounded_md()
             .flex()
             .items_center()
-            .hover(|s| s.bg(content(0.05)))
             .child(
                 div()
                     .id(SharedString::from(format!("mono-habit-open-{id}")))
@@ -381,7 +378,7 @@ impl Monos {
                     .flex()
                     .items_center()
                     .gap_2p5()
-                    .px_2()
+                    .px(px(10.))
                     .py_2()
                     .child(
                         div()

@@ -11,6 +11,7 @@ use std::sync::{
 use std::time::Duration;
 #[cfg(all(test, unix))]
 mod follow_up_tests;
+pub(crate) mod contributions;
 mod handoff;
 #[cfg(all(test, unix))]
 mod handoff_tests;
@@ -713,6 +714,7 @@ fn run_turn_using(
                                 serde_json::to_string(&tool).map_err(|e| e.to_string())?;
                             start = start.min(ix);
                             pending.changed(ix);
+                            contributions::record(&store, summary.id, &summary.cwd, &tool);
                         }
                         Event::SessionId(id) => {
                             if provider_id.as_ref() != Some(&id) {
