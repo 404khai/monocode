@@ -158,6 +158,12 @@ build passed.
 The linked CI runs above cover the `bc8c73da` baseline; these additional review
 fixes were checked locally.
 
+The first candidate CI run exposed a timing race in the existing split-pane
+animation test: keyboard simulation could finish the animation before the test
+froze its elapsed time. The fixture now creates and freezes the split in one
+update, retaining its mid-slide and settled-layout assertions. Keyboard split
+behavior remains covered by the separate split-and-drag interaction test.
+
 ## Local checks
 
 Run the complete native check from the repository root:
