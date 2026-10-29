@@ -250,16 +250,18 @@ for line in sys.stdin:
 }
 
 #[test]
-fn claude_processes_identify_as_monocode_for_every_profile() {
+fn claude_entrypoint_label_is_opt_in_for_every_profile() {
     let root = tempfile::tempdir().unwrap();
-    for profile in [Profile::default(), Profile::new("work-1", root.path())] {
+    let label = |on: bool, profile: &Profile| {
+        set_claude_entrypoint(on);
         let mut command = Command::new("provider");
         command.env("CLAUDE_CODE_ENTRYPOINT", "sdk-cli");
         profile.apply(Kind::Claude, &mut command).unwrap();
         let env: HashMap<_, _> = command.get_envs().collect();
-        assert_eq!(
-            env[std::ffi::OsStr::new("CLAUDE_CODE_ENTRYPOINT")],
-            Some(std::ffi::OsStr::new("monocode"))
-        );
+        env[std::ffi::OsStr::new("CLAUDE_CODE_ENTRYPOINT")].map(|v| v.to_owned())
+    };
+    for profile in [Profile::default(), Profile::new("work-1", root.path())] {
+        assert_eq!(label(true, &profile), Some("monocode".into()));
+        assert_eq!(label(false, &profile), Some("sdk-cli".into()));
     }
 }
