@@ -63,15 +63,13 @@ pub struct Contribution {
     pub deletions: u64,
 }
 
-static GIT_COMMIT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|[\s;&|(])git(?:\s+-[cC]\s+\S+)*\s+commit\b").unwrap()
-});
+static GIT_COMMIT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|[\s;&|(])git(?:\s+-[cC]\s+\S+)*\s+commit\b").unwrap());
 /// `git commit`'s summary: `[main 3f2a91c] Fix…`, `[main (root-commit) 3f2a91c] …`.
 static COMMIT_LINE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\[[^\]\n]* ([0-9a-f]{7,40})\] ").unwrap());
-static GH_PR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|[\s;&|(])gh\s+pr\s+(create|merge|review)\b").unwrap()
-});
+static GH_PR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|[\s;&|(])gh\s+pr\s+(create|merge|review)\b").unwrap());
 static PR_URL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(\d+)").unwrap()
 });
@@ -224,13 +222,19 @@ pub fn resolve(found: &Found, session: i64, cwd: &Path, at: u64) -> Contribution
 /// When a pull request named `owner/repo#123` merged, if it has (Unix ms).
 /// Asks GitHub through `gh`, so it is for background checks only.
 pub fn merged_at(pull_request: &str) -> Result<Option<u64>, String> {
-    let (repo, number) = pull_request
-        .split_once('#')
-        .ok_or("Not a pull request")?;
+    let (repo, number) = pull_request.split_once('#').ok_or("Not a pull request")?;
     let binary = crate::scm::shell::resolve_gui_binary("gh").ok_or("GitHub CLI not found")?;
     let mut cmd = std::process::Command::new(binary);
-    cmd.args(["pr", "view", number, "--repo", repo, "--json", "state,mergedAt"])
-        .env("GH_PROMPT_DISABLED", "1");
+    cmd.args([
+        "pr",
+        "view",
+        number,
+        "--repo",
+        repo,
+        "--json",
+        "state,mergedAt",
+    ])
+    .env("GH_PROMPT_DISABLED", "1");
     crate::scm::shell::apply_gui_env(&mut cmd);
     crate::process::configure_child(&mut cmd);
     let output = cmd.output().map_err(|e| e.to_string())?;
@@ -246,7 +250,9 @@ pub fn merged_at(pull_request: &str) -> Result<Option<u64>, String> {
         value["mergedAt"]
             .as_str()
             .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
-            .map_or_else(crate::time::now_ms, |at| at.timestamp_millis().max(0) as u64),
+            .map_or_else(crate::time::now_ms, |at| {
+                at.timestamp_millis().max(0) as u64
+            }),
     ))
 }
 
@@ -313,7 +319,10 @@ mod tests {
             "✓ Pull request acme/app#42 will be automatically merged"
         )
         .is_empty());
-        let review = run("gh pr review 42 --approve", "✓ Approved pull request acme/app#42");
+        let review = run(
+            "gh pr review 42 --approve",
+            "✓ Approved pull request acme/app#42",
+        );
         assert_eq!(review[0].kind, Kind::Review);
         assert_eq!(review[0].reference, "acme/app#42@call-1");
         assert!(run("gh pr review 42 --approve", "could not find pull request").is_empty());
@@ -359,7 +368,15 @@ mod tests {
         assert_eq!((resolved.additions, resolved.deletions), (2, 0));
         assert!(resolved.at > 0);
         // A commit the repository lost still counts.
-        let lost = resolve(&Found { reference: "deadbee".into(), ..found }, 3, dir.path(), 5);
+        let lost = resolve(
+            &Found {
+                reference: "deadbee".into(),
+                ..found
+            },
+            3,
+            dir.path(),
+            5,
+        );
         assert_eq!((lost.reference.as_str(), lost.at), ("deadbee", 5));
     }
 }

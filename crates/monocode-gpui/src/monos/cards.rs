@@ -291,15 +291,15 @@ pub(crate) fn render(
         .flex_col()
         .gap_2()
         .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_size(px(13.))
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .child(icon(glyph, 16.))
-                    .child(title),
-            )
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_size(px(13.))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .child(icon(glyph, 16.))
+                .child(title),
+        )
         .when_some(
             value["note"].as_str().or_else(|| value["summary"].as_str()),
             |d, n| {
@@ -342,17 +342,17 @@ pub(crate) fn render(
             )
         })
         .child(
-                panels::button(
-                    "mono-card-open",
-                    if kind == "habit" && value["started"] != true {
-                        "Start habit"
-                    } else {
-                        "Open"
-                    },
-                )
-                .bg(content(0.08))
-                .on_click(cx.listener(move |_, _, _, cx| cx.emit(CardAction(card.clone())))),
+            panels::button(
+                "mono-card-open",
+                if kind == "habit" && value["started"] != true {
+                    "Start habit"
+                } else {
+                    "Open"
+                },
             )
+            .bg(content(0.08))
+            .on_click(cx.listener(move |_, _, _, cx| cx.emit(CardAction(card.clone())))),
+        )
         .into_any_element()
 }
 /// launchedSessionState: where a session the Mono started stands.

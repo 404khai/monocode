@@ -222,7 +222,9 @@ fn sub_agent_card(agent: SubAgent) -> Stateful<Div> {
         c.a = 0.45;
         d.border_color(c)
     })
-    .when(matches!(agent.state, AgentState::Unavailable), |d| d.opacity(0.5))
+    .when(matches!(agent.state, AgentState::Unavailable), |d| {
+        d.opacity(0.5)
+    })
     .flex_shrink_0()
     .px(px(10.))
     .py_2()
@@ -299,8 +301,15 @@ fn sub_agent_card(agent: SubAgent) -> Stateful<Div> {
                             .gap_1()
                             .text_color(content(0.4))
                             .child(
-                                icon(if agent.branch { "git-branch" } else { "folder-01" }, 11.)
-                                    .text_color(content(0.4)),
+                                icon(
+                                    if agent.branch {
+                                        "git-branch"
+                                    } else {
+                                        "folder-01"
+                                    },
+                                    11.,
+                                )
+                                .text_color(content(0.4)),
                             )
                             .child(div().min_w_0().truncate().child(agent.place)),
                     ),
@@ -1478,25 +1487,19 @@ impl Monos {
                     .size_full()
                     .flex()
                     .flex_col()
-                    .child(
-                        self.page_header(&document.title, cx).when(
-                            document.kind != "visual",
-                            |header| {
-                                header.child(
-                                    icon_button(
-                                        "mono-document-copy",
-                                        "Copy document",
-                                        "response-copy",
-                                    )
+                    .child(self.page_header(&document.title, cx).when(
+                        document.kind != "visual",
+                        |header| {
+                            header.child(
+                                icon_button("mono-document-copy", "Copy document", "response-copy")
                                     .on_click(move |_, _, cx| {
                                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                                             document.body.clone(),
                                         ))
                                     }),
-                                )
-                            },
-                        ),
-                    )
+                            )
+                        },
+                    ))
                     .child(div().flex_1().min_h_0().child(view))
                     .into_any_element()
             }

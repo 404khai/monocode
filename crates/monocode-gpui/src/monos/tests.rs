@@ -1024,8 +1024,7 @@ fn chat_composer_keeps_attach_under_the_box_and_opens_the_model_list(cx: &mut Te
         ("".to_owned(), true),
     ] {
         chat.update(visual, |chat, cx| {
-            chat.input
-                .update(cx, |input, cx| input.set_text(draft.into(), cx));
+            chat.input.update(cx, |input, cx| input.set_text(draft, cx));
         });
         visual.run_until_parked();
         visual.refresh().unwrap();
