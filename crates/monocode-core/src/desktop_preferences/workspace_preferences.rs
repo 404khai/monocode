@@ -25,7 +25,6 @@ impl DesktopPreferences {
             ("format_on_save", "formatOnSave", true),
             ("autosave", "autosave", false),
             ("composer_mascot", "composerRunner", true),
-            ("empty_session_games", "gridArcadeEnabled", true),
             ("show_remaining_usage", "showRemainingUsage", false),
             ("mask_emails", "maskEmails", true),
             ("claude_hooks", "claudeHooks", true),
@@ -42,6 +41,19 @@ impl DesktopPreferences {
                 json!(self.flag(key).unwrap_or(default)),
             );
         }
+        // The desktop app's arcade toggle. Native shows the ink canvas by
+        // default and keeps the games as a choice.
+        reconcile_preference(
+            target,
+            baseline,
+            next,
+            "empty_session",
+            json!(if self.flag("gridArcadeEnabled") == Some(false) {
+                "none"
+            } else {
+                "ink"
+            }),
+        );
         for (field, key, allowed, default) in [
             (
                 "theme",
