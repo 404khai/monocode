@@ -38,6 +38,7 @@ enum Lang {
     Yaml,
     Toml,
     Ruby,
+    Zig,
 }
 
 /// The same file → language decisions as `languageForPath` in editorLanguage.ts,
@@ -66,6 +67,7 @@ fn language_for_path(path: &str) -> Option<Lang> {
         ".yaml" | ".yml" => Lang::Yaml,
         ".toml" => Lang::Toml,
         ".rb" | ".rake" => Lang::Ruby,
+        ".zig" | ".zon" => Lang::Zig,
         _ => match name.as_str() {
             ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile" => Lang::Bash,
             "gemfile" | "rakefile" => Lang::Ruby,
@@ -127,7 +129,7 @@ fn capture(name: &str, attribute_is_property: bool) -> Capture {
         "tag.error" => "var(--syntax-invalid)",
         "number" | "float" | "constant.numeric" => "var(--syntax-number)",
         "text.title" => "var(--color-markdown-heading)",
-        "string.special.key" => "var(--syntax-property)",
+        "string.special.key" | "variable.member" => "var(--syntax-property)",
         _ => match group(name).as_str() {
             "keyword" => "var(--syntax-keyword)",
             "function" => "var(--syntax-callable)",
@@ -248,10 +250,18 @@ impl Grammar {
                 vec![tree_sitter_ruby::HIGHLIGHTS_QUERY],
                 false,
             ),
+            Lang::Zig => (
+                tree_sitter_zig::LANGUAGE,
+                vec![tree_sitter_zig::HIGHLIGHTS_QUERY],
+                false,
+            ),
         };
         let language = Language::new(language);
-        let query =
-            Query::new(&language, &sources.join("\n")).map_err(|e| format!("{lang:?}: {e}"))?;
+        // Neovim-style queries (Zig's) use `#lua-match?`, which tree-sitter
+        // does not evaluate; their patterns are plain regexes, so run them as
+        // `#match?` rather than letting them match every node.
+        let source = sources.join("\n").replace("#lua-match?", "#match?");
+        let query = Query::new(&language, &source).map_err(|e| format!("{lang:?}: {e}"))?;
         let captures = query
             .capture_names()
             .iter()
@@ -888,7 +898,7 @@ pub(crate) fn analyze(
 mod tests {
     use super::*;
 
-    const LANGS: [(Lang, &str); 16] = [
+    const LANGS: [(Lang, &str); 17] = [
         (Lang::JavaScript, "a.jsx"),
         (Lang::TypeScript, "a.ts"),
         (Lang::Tsx, "a.tsx"),
@@ -905,6 +915,7 @@ mod tests {
         (Lang::Yaml, "a.yaml"),
         (Lang::Toml, "a.toml"),
         (Lang::Ruby, "a.rb"),
+        (Lang::Zig, "a.zig"),
     ];
 
     const TSX: &str = r#"import { useState } from "react";
@@ -1055,6 +1066,34 @@ export function Counter({ start }: { start: number }) {
         assert_eq!(
             kind_at(&tokens, html, "color"),
             Some("var(--syntax-property)")
+        );
+    }
+
+    #[test]
+    fn zig_lua_match_patterns_only_colour_what_they_match() {
+        let zig = "const std = @import(\"std\");\nconst Point = struct { x: u32 };\n// Adds one.\npub fn bump(value: u32) u32 {\n    return value + 1;\n}\n";
+        let analysis = Session::new("a.zig").unwrap().analyze(zig, None);
+        let tokens = &analysis.tokens;
+        assert_eq!(kind_at(tokens, zig, "pub"), Some("var(--syntax-keyword)"));
+        assert_eq!(kind_at(tokens, zig, "bump"), Some("var(--syntax-callable)"));
+        assert_eq!(kind_at(tokens, zig, "u32)"), Some("var(--syntax-type)"));
+        assert_eq!(kind_at(tokens, zig, "Point"), Some("var(--syntax-type)"));
+        assert_eq!(kind_at(tokens, zig, "x:"), Some("var(--syntax-property)"));
+        assert_eq!(
+            kind_at(tokens, zig, "\"std\""),
+            Some("var(--syntax-string)")
+        );
+        assert_eq!(
+            kind_at(tokens, zig, "// Adds"),
+            Some("var(--syntax-comment)")
+        );
+        assert_eq!(kind_at(tokens, zig, "1;"), Some("var(--syntax-number)"));
+        // Lowercase names fail `^[A-Z_]…`, so they keep the default colour.
+        assert_eq!(kind_at(tokens, zig, "value +"), None);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{:?}",
+            analysis.diagnostics
         );
     }
 
