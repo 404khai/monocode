@@ -1200,8 +1200,14 @@ impl Shell {
         ));
         let mut mono_chrome = monos.read(cx).overview_chrome();
         let mut mono_error = monos.read(cx).error.clone();
+        let mut mono_session = monos.read(cx).routed_session();
         this.observations
             .push(cx.observe(&monos, move |this, monos, cx| {
+                let session = monos.read(cx).routed_session();
+                if session != mono_session {
+                    mono_session = session;
+                    this.update_chat_visibility(cx);
+                }
                 let chrome = monos.read(cx).overview_chrome();
                 if chrome != mono_chrome {
                     mono_chrome = chrome;
@@ -1261,7 +1267,7 @@ impl Shell {
             inbox.update(cx, |inbox, cx| inbox.set_active(active, cx));
         }
         // Every pane of the active tab is on screen, not just the focused one.
-        let shown: HashSet<i64> = match self.workspace.active_tab() {
+        let mut shown: HashSet<i64> = match self.workspace.active_tab() {
             Some(tab)
                 if !self.app_view_open()
                     && self.settings.is_none()
@@ -1272,6 +1278,20 @@ impl Shell {
             }
             _ => HashSet::new(),
         };
+        // A session opened in the Mono details panel is on screen too. Left
+        // out, it was trimmed as inactive and the panel showed it empty.
+        if self.mono_active(cx)
+            && self.workspace.right_panel_open
+            && !self.app_view_open()
+            && self.settings.is_none()
+            && self.app_search.is_none()
+        {
+            shown.extend(
+                self.monos
+                    .as_ref()
+                    .and_then(|m| m.read(cx).routed_session()),
+            );
+        }
         // Hidden tabs keep their prepared image and any in-flight load. Only
         // closing a tab/pane should discard its background.
         let open: HashSet<i64> = self.workspace.open_sessions().into_iter().collect();
