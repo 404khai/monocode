@@ -67,7 +67,7 @@ fn language_for_path(path: &str) -> Option<Lang> {
         ".yaml" | ".yml" => Lang::Yaml,
         ".toml" => Lang::Toml,
         ".rb" | ".rake" => Lang::Ruby,
-        ".zig" | ".zon" => Lang::Zig,
+        ".zig" => Lang::Zig,
         _ => match name.as_str() {
             ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile" => Lang::Bash,
             "gemfile" | "rakefile" => Lang::Ruby,
@@ -81,7 +81,8 @@ pub(crate) fn supports(path: &str) -> bool {
     language_for_path(path).is_some()
 }
 
-/// Same list as LINTABLE_EXTENSIONS in editorLint.ts.
+/// Same list as LINTABLE_EXTENSIONS in editorLint.ts, plus Zig, which only
+/// the native editor parses.
 fn lintable(path: &str) -> bool {
     let name = path
         .rsplit(['/', '\\'])
@@ -102,6 +103,7 @@ fn lintable(path: &str) -> bool {
             | ".html"
             | ".htm"
             | ".py"
+            | ".zig"
     )
 }
 
@@ -487,6 +489,22 @@ fn folds(tree: &Tree, text: &str) -> Vec<Fold> {
             // `do … end`, `def … end`, `class … end` and friends.
             (Some(_), Some(close)) if !close.is_named() && close.kind() == "end" => {
                 add(start, line_end(node.start_byte()), close.start_byte());
+            }
+            // Keyword-first braces: Zig's `struct {`, `enum {`, `switch (x) {`.
+            (Some(_), Some(close)) if !close.is_named() && close.kind() == "}" => {
+                let mut cursor = node.walk();
+                let open = node
+                    .children(&mut cursor)
+                    .find(|child| !child.is_named() && child.kind() == "{");
+                if let Some(open) = open
+                    && open.end_position().row < close.start_position().row
+                {
+                    add(
+                        open.start_position().row,
+                        open.end_byte(),
+                        close.start_byte(),
+                    );
+                }
             }
             _ => {}
         }
@@ -974,6 +992,8 @@ export function Counter({ start }: { start: number }) {
             !supports("a.swift"),
             "other languages keep the QuickJS path"
         );
+        // The Zig grammar rejects ZON roots such as `.{ .x = 1 }`.
+        assert!(!supports("build.zig.zon"));
     }
 
     #[test]
@@ -1132,6 +1152,20 @@ export function Counter({ start }: { start: number }) {
             &py[analysis.folds[0].from..analysis.folds[0].to],
             "\n    a = 1\n    return a"
         );
+
+        let zig = "const S = struct {\n    a: u8,\n};\nconst E = enum {\n    a,\n};\nconst U = union(E) {\n    a: u8,\n};\nfn f(e: E) u8 {\n    return switch (e) {\n        .a => 1,\n    };\n}\n";
+        let analysis = Session::new("a.zig").unwrap().analyze(zig, None);
+        let ranges: Vec<_> = analysis.folds.iter().map(|f| &zig[f.from..f.to]).collect();
+        assert_eq!(
+            ranges,
+            [
+                "\n    a: u8,\n",
+                "\n    a,\n",
+                "\n    a: u8,\n",
+                "\n    return switch (e) {\n        .a => 1,\n    };\n",
+                "\n        .a => 1,\n    ",
+            ]
+        );
     }
 
     #[test]
@@ -1148,6 +1182,17 @@ export function Counter({ start }: { start: number }) {
         // Fixing it clears them on the incremental pass.
         let fixed = "const a = {\n  b: 1,\n};\nfunction g() {}\n";
         assert!(session.analyze(fixed, None).diagnostics.is_empty());
+        let mut zig = Session::new("a.zig").unwrap();
+        assert!(
+            !zig.analyze("const a = struct {\n", None)
+                .diagnostics
+                .is_empty()
+        );
+        assert!(
+            zig.analyze("const a = struct {};\n", None)
+                .diagnostics
+                .is_empty()
+        );
         // Rust is highlighted but, as in editorLint.ts, not linted.
         assert!(
             Session::new("a.rs")
