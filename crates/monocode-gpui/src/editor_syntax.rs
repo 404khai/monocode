@@ -81,8 +81,8 @@ pub(crate) fn supports(path: &str) -> bool {
     language_for_path(path).is_some()
 }
 
-/// Same list as LINTABLE_EXTENSIONS in editorLint.ts, plus Zig, which only
-/// the native editor parses.
+/// Same list as LINTABLE_EXTENSIONS in editorLint.ts.
+/// Zig is excluded: its pinned grammar rejects valid modern asm clobbers.
 fn lintable(path: &str) -> bool {
     let name = path
         .rsplit(['/', '\\'])
@@ -103,7 +103,6 @@ fn lintable(path: &str) -> bool {
             | ".html"
             | ".htm"
             | ".py"
-            | ".zig"
     )
 }
 
@@ -1169,6 +1168,39 @@ export function Counter({ start }: { start: number }) {
     }
 
     #[test]
+    fn zig_analysis_keeps_parser_diagnostics_disabled() {
+        let valid = r#"const S = struct {
+    x: u8,
+};
+pub fn fence() void {
+    asm volatile ("" ::: .{ .memory = true });
+}
+"#;
+        let malformed = format!("{valid}const Broken = struct {{\n");
+        let mut session = Session::new("a.zig").unwrap();
+        // Zig 0.15.2 asm clobbers are valid, but the pinned grammar rejects them.
+        // Neither they nor malformed Zig should produce parser diagnostics.
+        for source in [valid, malformed.as_str()] {
+            let analysis = session.analyze(source, None);
+            assert!(
+                analysis.diagnostics.is_empty(),
+                "{:?}",
+                analysis.diagnostics
+            );
+            assert_eq!(
+                kind_at(&analysis.tokens, source, "fence"),
+                Some("var(--syntax-callable)")
+            );
+            assert!(
+                analysis
+                    .folds
+                    .iter()
+                    .any(|fold| &source[fold.from..fold.to] == "\n    x: u8,\n")
+            );
+        }
+    }
+
+    #[test]
     fn syntax_errors_are_reported_where_the_parse_fails() {
         let mut session = Session::new("a.ts").unwrap();
         let broken = "const a = {\n  b: 1,\n\nfunction g() {}\n";
@@ -1182,17 +1214,6 @@ export function Counter({ start }: { start: number }) {
         // Fixing it clears them on the incremental pass.
         let fixed = "const a = {\n  b: 1,\n};\nfunction g() {}\n";
         assert!(session.analyze(fixed, None).diagnostics.is_empty());
-        let mut zig = Session::new("a.zig").unwrap();
-        assert!(
-            !zig.analyze("const a = struct {\n", None)
-                .diagnostics
-                .is_empty()
-        );
-        assert!(
-            zig.analyze("const a = struct {};\n", None)
-                .diagnostics
-                .is_empty()
-        );
         // Rust is highlighted but, as in editorLint.ts, not linted.
         assert!(
             Session::new("a.rs")
