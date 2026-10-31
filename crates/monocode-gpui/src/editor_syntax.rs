@@ -153,6 +153,9 @@ struct Grammar {
     /// Patterns gated on `#is?`/`#is-not?` local-scope predicates. Without a
     /// locals pass they would match everywhere, so they are skipped.
     skipped: Vec<bool>,
+    /// Neovim-style queries let a later pattern override an earlier one on
+    /// the same node (Zig's call pattern follows its field pattern).
+    later_patterns_win: bool,
 }
 
 impl Grammar {
@@ -275,6 +278,7 @@ impl Grammar {
             query,
             captures,
             skipped,
+            later_patterns_win: lang == Lang::Zig,
         })
     }
 }
@@ -296,7 +300,8 @@ fn grammar(lang: Lang) -> Option<&'static Grammar> {
 
 /// Highlights `range` of the tree (clipped to it) as flat, sorted,
 /// non-overlapping tokens. Nested captures win over their ancestors, and of
-/// several patterns on one node the earliest wins, as in tree-sitter-highlight.
+/// several patterns on one node the earliest wins, as in tree-sitter-highlight
+/// (the latest, for Neovim-style queries).
 fn highlight(grammar: &Grammar, tree: &Tree, text: &str, range: Range<usize>) -> Vec<Token> {
     let mut cursor = QueryCursor::new();
     cursor.set_byte_range(range.clone());
@@ -321,8 +326,15 @@ fn highlight(grammar: &Grammar, tree: &Tree, text: &str, range: Range<usize>) ->
             ));
         }
     }
-    // Outer nodes first; on identical nodes the earliest pattern first.
-    spans.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
+    // Outer nodes first; on identical nodes the winning pattern first.
+    spans.sort_by(|a, b| {
+        let pattern = if grammar.later_patterns_win {
+            b.2.cmp(&a.2)
+        } else {
+            a.2.cmp(&b.2)
+        };
+        a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(pattern)
+    });
     spans.dedup_by(|later, first| later.0 == first.0 && later.1 == first.1);
 
     let mut tokens: Vec<Token> = Vec::new();
@@ -1071,7 +1083,7 @@ export function Counter({ start }: { start: number }) {
 
     #[test]
     fn zig_lua_match_patterns_only_colour_what_they_match() {
-        let zig = "const std = @import(\"std\");\nconst Point = struct { x: u32 };\n// Adds one.\npub fn bump(value: u32) u32 {\n    return value + 1;\n}\n";
+        let zig = "const std = @import(\"std\");\nconst Point = struct { x: u32 };\n// Adds one.\npub fn bump(value: u32) u32 {\n    std.debug.print(\"{}\", .{value});\n    return value + 1;\n}\n";
         let analysis = Session::new("a.zig").unwrap().analyze(zig, None);
         let tokens = &analysis.tokens;
         assert_eq!(kind_at(tokens, zig, "pub"), Some("var(--syntax-keyword)"));
@@ -1079,6 +1091,15 @@ export function Counter({ start }: { start: number }) {
         assert_eq!(kind_at(tokens, zig, "u32)"), Some("var(--syntax-type)"));
         assert_eq!(kind_at(tokens, zig, "Point"), Some("var(--syntax-type)"));
         assert_eq!(kind_at(tokens, zig, "x:"), Some("var(--syntax-property)"));
+        // A called member is a call; a member that is only accessed is a field.
+        assert_eq!(
+            kind_at(tokens, zig, "print"),
+            Some("var(--syntax-callable)")
+        );
+        assert_eq!(
+            kind_at(tokens, zig, "debug"),
+            Some("var(--syntax-property)")
+        );
         assert_eq!(
             kind_at(tokens, zig, "\"std\""),
             Some("var(--syntax-string)")
